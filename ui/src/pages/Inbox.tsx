@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "@/lib/router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { approvalsApi } from "../api/approvals";
@@ -1051,7 +1051,24 @@ export function Inbox() {
           {showSeparatorBefore("work_items") && <Separator />}
           <div>
             <div className="overflow-hidden rounded-xl border border-border bg-card">
-              {workItemsToRender.map((item) => {
+              {workItemsToRender.flatMap((item, index) => {
+                const todayCutoff = Date.now() - 24 * 60 * 60 * 1000;
+                const showTodayDivider =
+                  index > 0 &&
+                  item.timestamp > 0 &&
+                  item.timestamp < todayCutoff &&
+                  workItemsToRender[index - 1].timestamp >= todayCutoff;
+                const elements: ReactNode[] = [];
+                if (showTodayDivider) {
+                  elements.push(
+                    <div key="today-divider" className="flex items-center gap-3 px-4 my-2">
+                      <div className="flex-1 border-t border-zinc-600" />
+                      <span className="shrink-0 text-[11px] font-medium uppercase tracking-wider text-zinc-500">
+                        Today
+                      </span>
+                    </div>,
+                  );
+                }
                 const isMineTab = tab === "mine";
 
                 if (item.kind === "approval") {
@@ -1076,7 +1093,7 @@ export function Inbox() {
                       }
                     />
                   );
-                  return isMineTab ? (
+                  elements.push(isMineTab ? (
                     <SwipeToArchive
                       key={approvalKey}
                       disabled={isArchiving}
@@ -1084,7 +1101,8 @@ export function Inbox() {
                     >
                       {row}
                     </SwipeToArchive>
-                  ) : row;
+                  ) : row);
+                  return elements;
                 }
 
                 if (item.kind === "failed_run") {
@@ -1111,7 +1129,7 @@ export function Inbox() {
                       }
                     />
                   );
-                  return isMineTab ? (
+                  elements.push(isMineTab ? (
                     <SwipeToArchive
                       key={runKey}
                       disabled={isArchiving}
@@ -1119,7 +1137,8 @@ export function Inbox() {
                     >
                       {row}
                     </SwipeToArchive>
-                  ) : row;
+                  ) : row);
+                  return elements;
                 }
 
                 if (item.kind === "join_request") {
@@ -1143,7 +1162,7 @@ export function Inbox() {
                       }
                     />
                   );
-                  return isMineTab ? (
+                  elements.push(isMineTab ? (
                     <SwipeToArchive
                       key={joinKey}
                       disabled={isArchiving}
@@ -1151,7 +1170,8 @@ export function Inbox() {
                     >
                       {row}
                     </SwipeToArchive>
-                  ) : row;
+                  ) : row);
+                  return elements;
                 }
 
                 const issue = item.issue;
@@ -1212,7 +1232,7 @@ export function Inbox() {
                   />
                 );
 
-                return isMineTab ? (
+                elements.push(isMineTab ? (
                   <SwipeToArchive
                     key={`issue:${issue.id}`}
                     disabled={isArchiving || archiveIssueMutation.isPending}
@@ -1220,7 +1240,8 @@ export function Inbox() {
                   >
                     {row}
                   </SwipeToArchive>
-                ) : row;
+                ) : row);
+                return elements;
               })}
             </div>
           </div>
