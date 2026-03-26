@@ -7,6 +7,7 @@ export interface ProjectWorkspaceSummary {
   kind: "execution_workspace" | "project_workspace";
   workspaceId: string;
   workspaceName: string;
+  cwd: string | null;
   branchName: string | null;
   lastUpdatedAt: Date;
   projectWorkspaceId: string | null;
@@ -80,6 +81,7 @@ export function buildProjectWorkspaceSummaries(input: {
         kind: "execution_workspace",
         workspaceId: executionWorkspace.id,
         workspaceName: executionWorkspace.name,
+        cwd: executionWorkspace.cwd ?? null,
         branchName: executionWorkspace.branchName ?? executionWorkspace.baseRef ?? null,
         lastUpdatedAt: maxDate(
           existing?.lastUpdatedAt,
@@ -108,6 +110,7 @@ export function buildProjectWorkspaceSummaries(input: {
       kind: "project_workspace",
       workspaceId: projectWorkspace.id,
       workspaceName: projectWorkspace.name,
+      cwd: projectWorkspace.cwd ?? null,
       branchName: projectWorkspace.repoRef ?? projectWorkspace.defaultRef ?? null,
       lastUpdatedAt: maxDate(existing?.lastUpdatedAt, projectWorkspace.updatedAt, issue.updatedAt),
       projectWorkspaceId: projectWorkspace.id,

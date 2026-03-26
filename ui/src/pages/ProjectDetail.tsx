@@ -16,6 +16,7 @@ import { useToast } from "../context/ToastContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { queryKeys } from "../lib/queryKeys";
 import { ProjectProperties, type ProjectConfigFieldKey, type ProjectFieldSaveState } from "../components/ProjectProperties";
+import { CopyText } from "../components/CopyText";
 import { InlineEditor } from "../components/InlineEditor";
 import { StatusBadge } from "../components/StatusBadge";
 import { BudgetPolicyCard } from "../components/BudgetPolicyCard";
@@ -28,7 +29,7 @@ import { timeAgo } from "../lib/timeAgo";
 import { Tabs } from "@/components/ui/tabs";
 import { PluginLauncherOutlet } from "@/plugins/launchers";
 import { PluginSlotMount, PluginSlotOutlet, usePluginSlots } from "@/plugins/slots";
-import { Clock3, GitBranch } from "lucide-react";
+import { Clock3, Copy, GitBranch } from "lucide-react";
 
 /* ── Top-level tab types ── */
 
@@ -236,6 +237,17 @@ function ProjectWorkspacesContent({
                     <span className="font-mono">{summary.branchName ?? "No branch info"}</span>
                   </span>
                 </div>
+
+                {summary.cwd ? (
+                  <div className="mt-2 flex min-w-0 items-start gap-2 text-xs text-muted-foreground">
+                    <span className="min-w-0 truncate font-mono leading-tight" title={summary.cwd}>
+                      {summary.cwd}
+                    </span>
+                    <CopyText text={summary.cwd} className="shrink-0" copiedLabel="Path copied">
+                      <Copy className="h-3.5 w-3.5" />
+                    </CopyText>
+                  </div>
+                ) : null}
               </div>
 
               <div className="min-w-0">
