@@ -12,7 +12,7 @@ import { heartbeatsApi } from "../api/heartbeats";
 import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { queryKeys } from "../lib/queryKeys";
-import { createIssueDetailLocationState } from "../lib/issueDetailBreadcrumb";
+import { createIssueDetailLocationState, createIssueDetailPath } from "../lib/issueDetailBreadcrumb";
 import { EmptyState } from "../components/EmptyState";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { IssueRow } from "../components/IssueRow";
@@ -526,6 +526,7 @@ export function Inbox() {
       createIssueDetailLocationState(
         "Inbox",
         `${location.pathname}${location.search}${location.hash}`,
+        "inbox",
       ),
     [location.pathname, location.search, location.hash],
   );
@@ -1019,7 +1020,7 @@ export function Inbox() {
           const item = workItemsToRender[selectedIndex];
           if (item.kind === "issue") {
             const pathId = item.issue.identifier ?? item.issue.id;
-            navigate(`/issues/${pathId}`, { state: issueLinkState });
+            navigate(createIssueDetailPath(pathId, issueLinkState), { state: issueLinkState });
           } else if (item.kind === "approval") {
             navigate(`/approvals/${item.approval.id}`);
           } else if (item.kind === "failed_run") {
