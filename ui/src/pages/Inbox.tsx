@@ -1,6 +1,7 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "@/lib/router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { INBOX_MINE_ISSUE_STATUS_FILTER } from "@paperclipai/shared";
 import { approvalsApi } from "../api/approvals";
 import { accessApi } from "../api/access";
 import { ApiError } from "../api/client";
@@ -67,8 +68,6 @@ type InboxCategoryFilter =
 type SectionKey =
   | "work_items"
   | "alerts";
-
-const INBOX_ISSUE_STATUSES = "backlog,todo,in_progress,in_review,blocked,done";
 
 function firstNonEmptyLine(value: string | null | undefined): string | null {
   if (!value) return null;
@@ -595,7 +594,7 @@ export function Inbox() {
       issuesApi.list(selectedCompanyId!, {
         touchedByUserId: "me",
         inboxArchivedByUserId: "me",
-        status: INBOX_ISSUE_STATUSES,
+        status: INBOX_MINE_ISSUE_STATUS_FILTER,
       }),
     enabled: !!selectedCompanyId,
   });
@@ -607,7 +606,7 @@ export function Inbox() {
     queryFn: () =>
       issuesApi.list(selectedCompanyId!, {
         touchedByUserId: "me",
-        status: INBOX_ISSUE_STATUSES,
+        status: INBOX_MINE_ISSUE_STATUS_FILTER,
       }),
     enabled: !!selectedCompanyId,
   });
