@@ -6,6 +6,28 @@ import {
   type UpdateCurrentUserProfile,
 } from "@paperclipai/shared";
 
+type AuthErrorBody =
+  | {
+    code?: string;
+    message?: string;
+    error?: string | { code?: string; message?: string };
+  }
+  | null;
+
+export class AuthApiError extends Error {
+  status: number;
+  code: string | null;
+  body: unknown;
+
+  constructor(message: string, status: number, body: unknown, code: string | null = null) {
+    super(message);
+    this.name = "AuthApiError";
+    this.status = status;
+    this.code = code;
+    this.body = body;
+  }
+}
+
 function toSession(value: unknown): AuthSession | null {
   const direct = authSessionSchema.safeParse(value);
   if (direct.success) return direct.data;
@@ -13,6 +35,29 @@ function toSession(value: unknown): AuthSession | null {
   if (!value || typeof value !== "object") return null;
   const nested = authSessionSchema.safeParse((value as Record<string, unknown>).data);
   return nested.success ? nested.data : null;
+}
+
+function extractAuthError(payload: AuthErrorBody, status: number) {
+  const nested =
+    payload?.error && typeof payload.error === "object"
+      ? payload.error
+      : null;
+  const code =
+    typeof nested?.code === "string"
+      ? nested.code
+      : typeof payload?.code === "string"
+        ? payload.code
+        : null;
+  const message =
+    typeof nested?.message === "string" && nested.message.trim().length > 0
+      ? nested.message
+      : typeof payload?.message === "string" && payload.message.trim().length > 0
+        ? payload.message
+        : typeof payload?.error === "string" && payload.error.trim().length > 0
+          ? payload.error
+          : `Request failed: ${status}`;
+
+  return new AuthApiError(message, status, payload, code);
 }
 
 async function authPost(path: string, body: Record<string, unknown>) {
@@ -24,12 +69,7 @@ async function authPost(path: string, body: Record<string, unknown>) {
   });
   const payload = await res.json().catch(() => null);
   if (!res.ok) {
-    const message =
-      (payload as { error?: { message?: string } | string } | null)?.error &&
-      typeof (payload as { error?: { message?: string } | string }).error === "object"
-        ? ((payload as { error?: { message?: string } }).error?.message ?? `Request failed: ${res.status}`)
-        : (payload as { error?: string } | null)?.error ?? `Request failed: ${res.status}`;
-    throw new Error(message);
+    throw extractAuthError(payload as AuthErrorBody, res.status);
   }
   return payload;
 }
@@ -43,7 +83,7 @@ async function authPatch<T>(path: string, body: Record<string, unknown>, parse: 
   });
   const payload = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new Error((payload as { error?: string } | null)?.error ?? `Request failed: ${res.status}`);
+    throw extractAuthError(payload as AuthErrorBody, res.status);
   }
   return parse(payload);
 }

@@ -117,19 +117,13 @@ describe("InviteLandingPage", () => {
     vi.clearAllMocks();
   });
 
-  it("keeps account signup inline and remembers the invite token while signing in", async () => {
-    getSessionMock
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(null)
-      .mockResolvedValue({
-        session: { id: "session-1", userId: "user-1" },
-        user: {
-          id: "user-1",
-          name: "Jane Example",
-          email: "jane@example.com",
-          image: null,
-        },
-      });
+  it("defaults invite auth to account creation and guides existing users back to sign in", async () => {
+    signUpEmailMock.mockRejectedValue(
+      Object.assign(new Error("User already exists. Use another email."), {
+        code: "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL",
+        status: 422,
+      }),
+    );
 
     const root = createRoot(container);
     const queryClient = new QueryClient({
@@ -150,24 +144,29 @@ describe("InviteLandingPage", () => {
     await flushReact();
     await flushReact();
 
+    expect(container.textContent).toContain("You've been invited to join Paperclip");
     expect(container.textContent).toContain("Join Acme Robotics");
-    expect(container.textContent).toContain("Sign in");
     expect(container.textContent).toContain("Create account");
-    expect(container.textContent).not.toContain("Join as human");
-    expect(container.textContent).not.toContain("How personal access works");
-    expect(container.textContent).not.toContain("Choose your path");
+    expect(container.textContent).toContain("I already have an account");
+    expect(container.textContent).toContain("Message from inviter");
     expect(container.querySelector('[data-testid="invite-inline-auth"]')).not.toBeNull();
     expect(localStorage.getItem("paperclip:pending-invite-token")).toBe("pcp_invite_test");
     expect(container.querySelector('img[alt="Acme Robotics logo"]')).not.toBeNull();
+    expect(container.querySelector('input[name="name"]')).not.toBeNull();
 
+    const nameInput = container.querySelector('input[name="name"]') as HTMLInputElement | null;
     const emailInput = container.querySelector('input[name="email"]') as HTMLInputElement | null;
     const passwordInput = container.querySelector('input[name="password"]') as HTMLInputElement | null;
+    expect(nameInput).not.toBeNull();
     expect(emailInput).not.toBeNull();
     expect(passwordInput).not.toBeNull();
     const inputValueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
     expect(inputValueSetter).toBeTypeOf("function");
 
     await act(async () => {
+      inputValueSetter!.call(nameInput, "Jane Example");
+      nameInput!.dispatchEvent(new Event("input", { bubbles: true }));
+      nameInput!.dispatchEvent(new Event("change", { bubbles: true }));
       inputValueSetter!.call(emailInput, "jane@example.com");
       emailInput!.dispatchEvent(new Event("input", { bubbles: true }));
       emailInput!.dispatchEvent(new Event("change", { bubbles: true }));
@@ -186,12 +185,91 @@ describe("InviteLandingPage", () => {
     await flushReact();
     await flushReact();
 
-    expect(signInEmailMock).toHaveBeenCalledWith({
+    expect(signUpEmailMock).toHaveBeenCalledWith({
+      name: "Jane Example",
       email: "jane@example.com",
       password: "supersecret",
     });
-    expect(getSessionMock).toHaveBeenCalled();
+    expect(container.textContent).toContain("An account already exists for jane@example.com. Sign in below to continue with this invite.");
+    expect(container.querySelector('input[name="name"]')).toBeNull();
+    expect(container.textContent).toContain("Sign in to continue");
     expect(localStorage.getItem("paperclip:pending-invite-token")).toBe("pcp_invite_test");
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("turns invalid sign-in responses into a clear invite-specific message", async () => {
+    signInEmailMock.mockRejectedValue(
+      Object.assign(new Error("Invalid email or password"), {
+        code: "INVALID_EMAIL_OR_PASSWORD",
+        status: 401,
+      }),
+    );
+
+    const root = createRoot(container);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/invite/pcp_invite_test"]}>
+          <QueryClientProvider client={queryClient}>
+            <Routes>
+              <Route path="/invite/:token" element={<InviteLandingPage />} />
+            </Routes>
+          </QueryClientProvider>
+        </MemoryRouter>,
+      );
+    });
+    await flushReact();
+    await flushReact();
+
+    const inputValueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    expect(inputValueSetter).toBeTypeOf("function");
+
+    const existingAccountButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "I already have an account",
+    );
+    expect(existingAccountButton).not.toBeNull();
+
+    await act(async () => {
+      existingAccountButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushReact();
+
+    const emailInput = container.querySelector('input[name="email"]') as HTMLInputElement | null;
+    const passwordInput = container.querySelector('input[name="password"]') as HTMLInputElement | null;
+    expect(emailInput).not.toBeNull();
+    expect(passwordInput).not.toBeNull();
+
+    await act(async () => {
+      inputValueSetter!.call(emailInput, "jane@example.com");
+      emailInput!.dispatchEvent(new Event("input", { bubbles: true }));
+      emailInput!.dispatchEvent(new Event("change", { bubbles: true }));
+      inputValueSetter!.call(passwordInput, "wrongpass");
+      passwordInput!.dispatchEvent(new Event("input", { bubbles: true }));
+      passwordInput!.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    const authForm = container.querySelector('[data-testid="invite-inline-auth"]') as HTMLFormElement | null;
+    expect(authForm).not.toBeNull();
+
+    await act(async () => {
+      authForm?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+    await flushReact();
+    await flushReact();
+
+    expect(signInEmailMock).toHaveBeenCalledWith({
+      email: "jane@example.com",
+      password: "wrongpass",
+    });
+    expect(container.textContent).toContain(
+      "That email and password did not match an existing Paperclip account. Check both fields, or create an account first if you are new here.",
+    );
 
     await act(async () => {
       root.unmount();
