@@ -142,6 +142,22 @@ function summarizeExecutionParticipants(
   );
 }
 
+function isClosedIssueStatus(status: string | null | undefined): status is "done" | "cancelled" {
+  return status === "done" || status === "cancelled";
+}
+
+function shouldImplicitlyReopenCommentForAgent(input: {
+  issueStatus: string | null | undefined;
+  assigneeAgentId: string | null | undefined;
+  actorType: "agent" | "user";
+  actorId: string;
+}) {
+  if (!isClosedIssueStatus(input.issueStatus)) return false;
+  if (typeof input.assigneeAgentId !== "string" || input.assigneeAgentId.length === 0) return false;
+  if (input.actorType === "agent" && input.actorId === input.assigneeAgentId) return false;
+  return true;
+}
+
 function diffExecutionParticipants(
   previousPolicy: NormalizedExecutionPolicy | null,
   nextPolicy: NormalizedExecutionPolicy | null,
@@ -1361,7 +1377,7 @@ export function issueRoutes(
     if (!(await assertAgentRunCheckoutOwnership(req, res, existing))) return;
 
     const actor = getActorInfo(req);
-    const isClosed = isClosedIssueStatus(existing.status);
+    const isClosed = existing.status === "done" || existing.status === "cancelled";
     const normalizedAssigneeAgentId = await normalizeIssueAssigneeAgentReference(
       existing.companyId,
       req.body.assigneeAgentId as string | null | undefined,
@@ -1430,7 +1446,7 @@ export function issueRoutes(
     if (hiddenAtRaw !== undefined) {
       updateFields.hiddenAt = hiddenAtRaw ? new Date(hiddenAtRaw) : null;
     }
-    if (commentBody && reopenRequested === true && isClosed && updateFields.status === undefined) {
+    if (commentBody && effectiveReopenRequested && isClosed && updateFields.status === undefined) {
       updateFields.status = "todo";
     }
     if (req.body.executionPolicy !== undefined) {
@@ -1590,7 +1606,7 @@ export function issueRoutes(
     const hasFieldChanges = Object.keys(previous).length > 0;
     const reopened =
       commentBody &&
-      reopenRequested === true &&
+      effectiveReopenRequested &&
       isClosed &&
       previous.status !== undefined &&
       issue.status === "todo";
@@ -2241,13 +2257,21 @@ export function issueRoutes(
     const actor = getActorInfo(req);
     const reopenRequested = req.body.reopen === true;
     const interruptRequested = req.body.interrupt === true;
-    const isClosed = issue.status === "done" || issue.status === "cancelled";
+    const isClosed = isClosedIssueStatus(issue.status);
+    const effectiveReopenRequested =
+      reopenRequested ||
+      shouldImplicitlyReopenCommentForAgent({
+        issueStatus: issue.status,
+        assigneeAgentId: issue.assigneeAgentId,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+      });
     let reopened = false;
     let reopenFromStatus: string | null = null;
     let interruptedRunId: string | null = null;
     let currentIssue = issue;
 
-    if (reopenRequested && isClosed) {
+    if (effectiveReopenRequested && isClosed) {
       const reopenedIssue = await svc.update(id, { status: "todo" });
       if (!reopenedIssue) {
         res.status(404).json({ error: "Issue not found" });
