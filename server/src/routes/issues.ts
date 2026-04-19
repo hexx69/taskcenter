@@ -18,6 +18,7 @@ import {
   upsertIssueFeedbackVoteSchema,
   linkIssueApprovalSchema,
   issueDocumentKeySchema,
+  ISSUE_CONTINUATION_SUMMARY_DOCUMENT_KEY,
   restoreIssueDocumentRevisionSchema,
   updateIssueWorkProductSchema,
   upsertIssueDocumentSchema,
@@ -778,7 +779,7 @@ export function issueRoutes(
       wakeCommentId ? svc.getComment(wakeCommentId) : null,
       svc.getRelationSummaries(issue.id),
       svc.listAttachments(issue.id),
-      documentsSvc.getIssueDocumentByKey(issue.id, "continuation-summary"),
+      documentsSvc.getIssueDocumentByKey(issue.id, ISSUE_CONTINUATION_SUMMARY_DOCUMENT_KEY),
     ]);
 
     res.json({
@@ -868,7 +869,9 @@ export function issueRoutes(
       return;
     }
     assertCompanyAccess(req, issue.companyId);
-    const docs = await documentsSvc.listIssueDocuments(issue.id);
+    const docs = await documentsSvc.listIssueDocuments(issue.id, {
+      includeSystem: req.query.includeSystem === "true",
+    });
     res.json(docs);
   });
 
