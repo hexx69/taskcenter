@@ -23,7 +23,7 @@ import {
   storybookSidebarBadges,
 } from "../fixtures/paperclipData";
 import "@mdxeditor/editor/style.css";
-import "@/index.css";
+import "./tailwind-entry.css";
 import "./styles.css";
 
 function installStorybookApiFixtures() {
