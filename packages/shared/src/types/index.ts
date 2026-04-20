@@ -147,6 +147,7 @@ export type {
   MemoryResolvedBinding,
   MemoryRecordHandle,
   MemoryRecord,
+  MemoryRecordCountResult,
   MemoryOperation,
   MemoryExtractionJob,
   MemoryRefreshJobSourceCounts,

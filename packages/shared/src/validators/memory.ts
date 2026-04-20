@@ -300,6 +300,7 @@ export const memoryListRecordsQuerySchema = z
     includeExpired: z.coerce.boolean().optional().default(false),
     includeSuperseded: z.coerce.boolean().optional().default(false),
     limit: z.coerce.number().int().positive().max(200).optional().default(50),
+    count: z.enum(["only"]).optional(),
   })
   .strict();
 

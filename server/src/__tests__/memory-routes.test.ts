@@ -27,6 +27,7 @@ const mockMemoryService = vi.hoisted(() => ({
   review: vi.fn(),
   sweepRetention: vi.fn(),
   listRecords: vi.fn(),
+  countRecords: vi.fn(),
   getRecord: vi.fn(),
   listOperations: vi.fn(),
   listExtractionJobs: vi.fn(),
@@ -243,6 +244,35 @@ describe("memory routes", () => {
       expect.objectContaining({ actorType: "user", userId: "board-user" }),
     );
     expect(mockLogActivity).toHaveBeenCalledOnce();
+  });
+
+  it("routes count-only record queries through memory service", async () => {
+    mockMemoryService.countRecords.mockResolvedValue({ count: 152 });
+    const app = createApp({
+      type: "board",
+      userId: "board-user",
+      source: "session",
+      companyIds: [companyA],
+      isInstanceAdmin: false,
+    });
+
+    const res = await request(app)
+      .get(`/api/companies/${companyA}/memory/records`)
+      .query({ count: "only", reviewState: "pending" })
+      .set("Origin", "http://localhost:3100");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ count: 152 });
+    expect(mockMemoryService.countRecords).toHaveBeenCalledWith(
+      companyA,
+      expect.objectContaining({
+        count: "only",
+        reviewState: "pending",
+        includeRevoked: false,
+      }),
+      expect.objectContaining({ actorType: "user", userId: "board-user" }),
+    );
+    expect(mockMemoryService.listRecords).not.toHaveBeenCalled();
   });
 
   it("sets project memory overrides through the owning project company", async () => {

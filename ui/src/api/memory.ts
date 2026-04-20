@@ -9,6 +9,7 @@ import type {
   MemoryOperation,
   MemoryProviderDescriptor,
   MemoryRecord,
+  MemoryRecordCountResult,
   MemoryRefreshJobResult,
   MemoryRetentionSweep,
   MemoryRetentionSweepResult,
@@ -59,6 +60,10 @@ export const memoryApi = {
   listRecords: (companyId: string, filters?: Partial<MemoryListRecordsQuery>) =>
     api.get<MemoryRecord[]>(
       `/companies/${encodeURIComponent(companyId)}/memory/records${buildQueryString(filters)}`,
+    ),
+  countRecords: (companyId: string, filters?: Partial<MemoryListRecordsQuery>) =>
+    api.get<MemoryRecordCountResult>(
+      `/companies/${encodeURIComponent(companyId)}/memory/records${buildQueryString({ ...filters, count: "only" })}`,
     ),
   listOperations: (companyId: string, filters?: MemoryListOperationsQuery) =>
     api.get<MemoryOperation[]>(

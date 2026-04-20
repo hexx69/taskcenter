@@ -40,6 +40,7 @@ import type {
   MemoryQuery,
   MemoryQueryResult,
   MemoryRecord,
+  MemoryRecordCountResult,
   MemoryRefreshJob,
   MemoryRefreshJobResult,
   MemoryRefreshJobSourceCounts,
@@ -1121,7 +1122,7 @@ export function memoryService(
     });
   }
 
-  async function listLocalBasic(companyId: string, filters: MemoryListRecordsQuery, actor: ActorInfo) {
+  function buildLocalBasicConditions(companyId: string, filters: MemoryListRecordsQuery, actor: ActorInfo) {
     const conditions = [eq(memoryLocalRecords.companyId, companyId)];
     if (filters.bindingId) conditions.push(eq(memoryLocalRecords.bindingId, filters.bindingId));
     if (filters.providerKey) conditions.push(eq(memoryLocalRecords.providerKey, filters.providerKey));
@@ -1181,6 +1182,11 @@ export function memoryService(
       );
     }
 
+    return conditions;
+  }
+
+  async function listLocalBasic(companyId: string, filters: MemoryListRecordsQuery, actor: ActorInfo) {
+    const conditions = buildLocalBasicConditions(companyId, filters, actor);
     const rows = await db
       .select()
       .from(memoryLocalRecords)
@@ -1188,6 +1194,19 @@ export function memoryService(
       .orderBy(desc(memoryLocalRecords.createdAt))
       .limit(filters.limit);
     return rows.map((row) => mapRecord(row));
+  }
+
+  async function countLocalBasic(
+    companyId: string,
+    filters: MemoryListRecordsQuery,
+    actor: ActorInfo,
+  ): Promise<MemoryRecordCountResult> {
+    const conditions = buildLocalBasicConditions(companyId, filters, actor);
+    const [row] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(memoryLocalRecords)
+      .where(and(...conditions));
+    return { count: Number(row?.count ?? 0) };
   }
 
   async function logOperation(input: {
@@ -2674,6 +2693,9 @@ export function memoryService(
 
     listRecords: async (companyId: string, filters: MemoryListRecordsQuery, actor: ActorInfo) =>
       listLocalBasic(companyId, filters, actor),
+
+    countRecords: async (companyId: string, filters: MemoryListRecordsQuery, actor: ActorInfo) =>
+      countLocalBasic(companyId, filters, actor),
 
     getRecord: async (companyId: string, recordId: string, actor?: ActorInfo) => {
       const row = await db

@@ -268,6 +268,10 @@ export function memoryRoutes(
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
     const parsed = memoryListRecordsQuerySchema.parse(req.query);
+    if (parsed.count === "only") {
+      res.json(await memory.countRecords(companyId, parsed, actorInfoFromReq(req)));
+      return;
+    }
     res.json(await memory.listRecords(companyId, parsed, actorInfoFromReq(req)));
   });
 

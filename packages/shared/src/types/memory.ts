@@ -234,6 +234,10 @@ export interface MemoryRecord {
   updatedAt: Date;
 }
 
+export interface MemoryRecordCountResult {
+  count: number;
+}
+
 export interface MemoryOperation {
   id: string;
   companyId: string;

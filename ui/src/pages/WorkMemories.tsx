@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link } from "@/lib/router";
+import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import { Link, useSearchParams } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   MEMORY_RETENTION_STATES,
@@ -19,14 +19,31 @@ import {
   type MemorySourceKind,
   type Project,
 } from "@paperclipai/shared";
-import { Check, Clipboard, Database, RotateCcw, SlidersHorizontal, Trash2, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, Clipboard, Database, RotateCcw, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { agentsApi } from "../api/agents";
 import { issuesApi } from "../api/issues";
 import { memoryApi } from "../api/memory";
 import { projectsApi } from "../api/projects";
 import { EmptyState } from "../components/EmptyState";
+import {
+  getMemoryRecordTitle,
+  labelizeMemoryValue,
+  MemoryRecordRow,
+  memoryRecordSourceHref,
+  memoryRecordSourceLabel,
+} from "../components/MemoryRecordRow";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Sheet,
   SheetContent,
@@ -34,12 +51,14 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { Skeleton } from "@/components/ui/skeleton";
+import { StatusBadge } from "../components/StatusBadge";
 import { Textarea } from "@/components/ui/textarea";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useCompany } from "../context/CompanyContext";
 import { useToast } from "../context/ToastContext";
 import { queryKeys } from "../lib/queryKeys";
-import { agentUrl, cn, formatDateTime, issueUrl, projectUrl, relativeTime } from "../lib/utils";
+import { agentUrl, cn, formatDateTime, projectUrl, relativeTime } from "../lib/utils";
 
 type MemoryFilters = {
   q: string;
@@ -75,48 +94,24 @@ const DEFAULT_FILTERS: MemoryFilters = {
   includeSuperseded: false,
 };
 
+const SELECT_ALL_VALUE = "__all__";
+const REVIEW_TABS = ["pending", "accepted", "rejected", "revoked"] as const;
+type ReviewTab = (typeof REVIEW_TABS)[number];
+
 function labelize(value: string) {
-  return value.replace(/_/g, " ");
+  return labelizeMemoryValue(value);
 }
 
-function summarizeRecord(record: MemoryRecord) {
-  const text = (record.summary ?? record.content).replace(/\s+/g, " ").trim();
-  return text.length > 360 ? `${text.slice(0, 357)}...` : text;
-}
-
-function recordTitle(record: MemoryRecord) {
-  return record.title ?? record.citation?.sourceTitle ?? labelize(record.source?.kind ?? "memory");
-}
-
-function badgeTone(record: MemoryRecord) {
-  if (record.revokedAt || record.retentionState === "revoked") return "bg-zinc-500/10 text-zinc-700 dark:text-zinc-300";
-  if (record.reviewState === "accepted") return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
-  if (record.reviewState === "rejected") return "bg-rose-500/10 text-rose-700 dark:text-rose-300";
-  return "bg-amber-500/10 text-amber-800 dark:text-amber-300";
+function memoryReviewStatus(record: MemoryRecord) {
+  return record.revokedAt || record.retentionState === "revoked" ? "revoked" : record.reviewState;
 }
 
 function sourceLabel(record: MemoryRecord, issuesById: Map<string, Issue>) {
-  const issueId = record.source?.issueId ?? record.scope.issueId ?? null;
-  const issue = issueId ? issuesById.get(issueId) : null;
-  if (issue) return issue.identifier ?? issue.title;
-  if (record.source?.runId ?? record.scope.runId) return `run ${(record.source?.runId ?? record.scope.runId)!.slice(0, 8)}`;
-  if (record.source?.externalRef) return record.source.externalRef;
-  return labelize(record.source?.kind ?? record.scopeType);
+  return memoryRecordSourceLabel(record, issuesById);
 }
 
 function sourceHref(record: MemoryRecord, issuesById: Map<string, Issue>) {
-  const issueId = record.source?.issueId ?? record.scope.issueId ?? null;
-  const issue = issueId ? issuesById.get(issueId) : null;
-  if (issue) {
-    const base = issueUrl(issue);
-    if (record.source?.commentId) return `${base}#comment-${record.source.commentId}`;
-    if (record.source?.documentKey) return `${base}#document-${record.source.documentKey}`;
-    return base;
-  }
-  const runId = record.source?.runId ?? record.scope.runId ?? null;
-  const agentId = record.scope.agentId ?? null;
-  if (runId && agentId) return `/agents/${agentId}/runs/${runId}`;
-  return null;
+  return memoryRecordSourceHref(record, issuesById);
 }
 
 function buildRecordFilters(filters: MemoryFilters): Partial<MemoryListRecordsQuery> {
@@ -137,6 +132,30 @@ function buildRecordFilters(filters: MemoryFilters): Partial<MemoryListRecordsQu
     includeExpired: filters.includeExpired,
     includeSuperseded: filters.includeSuperseded,
     limit: 100,
+  };
+}
+
+function buildCountFilters(filters: MemoryFilters, reviewTab: ReviewTab): Partial<MemoryListRecordsQuery> {
+  const base = buildRecordFilters({
+    ...filters,
+    reviewState: "",
+    retentionState: filters.retentionState === "revoked" ? "" : filters.retentionState,
+  });
+  delete base.limit;
+
+  if (reviewTab === "revoked") {
+    return {
+      ...base,
+      reviewState: undefined,
+      retentionState: "revoked",
+      includeRevoked: true,
+    };
+  }
+
+  return {
+    ...base,
+    reviewState: reviewTab,
+    includeRevoked: false,
   };
 }
 
@@ -164,28 +183,24 @@ function FilterSelect({
   options: Array<{ value: string; label: string }>;
 }) {
   return (
-    <label className="space-y-1 text-xs font-medium text-muted-foreground">
-      <span>{label}</span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm font-normal text-foreground shadow-xs outline-none"
+    <div className="space-y-1">
+      <Label className="text-xs text-muted-foreground">{label}</Label>
+      <Select
+        value={value || SELECT_ALL_VALUE}
+        onValueChange={(nextValue) => onChange(nextValue === SELECT_ALL_VALUE ? "" : nextValue)}
       >
-        {options.map((option) => (
-          <option key={option.value || "__all__"} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-function ReviewBadge({ record }: { record: MemoryRecord }) {
-  return (
-    <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium", badgeTone(record))}>
-      {record.revokedAt ? "revoked" : record.reviewState}
-    </span>
+        <SelectTrigger className="w-full">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((option) => (
+            <SelectItem key={option.value || SELECT_ALL_VALUE} value={option.value || SELECT_ALL_VALUE}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
   );
 }
 
@@ -313,12 +328,58 @@ function MemoryDetailSheet({
     record.source?.documentKey ? `document:${record.source.documentKey}` : null,
     record.source?.runId ? `run:${record.source.runId}` : null,
   ].filter(Boolean).join(" ");
+  const canSaveCorrection = canMutate && Boolean(correctionContent.trim()) && Boolean(correctionReason.trim()) && !correctRecord.isPending;
+
+  const copySourceReference = () => {
+    void navigator.clipboard.writeText(sourceReference);
+    pushToast({ title: "Source reference copied", tone: "success" });
+  };
+
+  const handleSheetKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement;
+    const isEditable = Boolean(target.closest("input, textarea, select, [contenteditable=true]"));
+
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+      if (canSaveCorrection) {
+        event.preventDefault();
+        correctRecord.mutate();
+      }
+      return;
+    }
+
+    if (isEditable) return;
+
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "c") {
+      const selection = window.getSelection()?.toString();
+      if (!selection) {
+        event.preventDefault();
+        copySourceReference();
+      }
+      return;
+    }
+
+    if (!canMutate || reviewRecord.isPending || event.metaKey || event.ctrlKey || event.altKey) return;
+
+    const key = event.key.toLowerCase();
+    if (key === "a") {
+      event.preventDefault();
+      reviewRecord.mutate("accepted");
+    }
+    if (key === "r") {
+      event.preventDefault();
+      reviewRecord.mutate("rejected");
+    }
+    if (key === "p") {
+      event.preventDefault();
+      reviewRecord.mutate("pending");
+    }
+  };
 
   return (
     <Sheet open={Boolean(record)} onOpenChange={(next) => { if (!next) onClose(); }}>
-      <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-2xl">
+      <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-2xl" onKeyDownCapture={handleSheetKeyDown}>
         <SheetHeader>
-          <SheetTitle className="text-base">{recordTitle(record)}</SheetTitle>
+          <SheetTitle className="text-base">{getMemoryRecordTitle(record)}</SheetTitle>
           <SheetDescription>
             {record.providerKey} · {record.sensitivityLabel} · {record.retentionState}
           </SheetDescription>
@@ -326,7 +387,7 @@ function MemoryDetailSheet({
 
         <div className="mt-5 space-y-5">
           <div className="flex flex-wrap items-center gap-2">
-            <ReviewBadge record={record} />
+            <StatusBadge status={memoryReviewStatus(record)} />
             <span className="rounded-full bg-accent px-2 py-0.5 text-[11px] text-muted-foreground">
               {record.scopeType}
             </span>
@@ -390,10 +451,7 @@ function MemoryDetailSheet({
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => {
-                  void navigator.clipboard.writeText(sourceReference);
-                  pushToast({ title: "Source reference copied", tone: "success" });
-                }}
+                onClick={copySourceReference}
               >
                 <Clipboard className="mr-2 h-4 w-4" />
                 Copy
@@ -451,7 +509,7 @@ function MemoryDetailSheet({
               <Button
                 size="sm"
                 variant="outline"
-                disabled={!canMutate || !correctionContent.trim() || !correctionReason.trim() || correctRecord.isPending}
+                disabled={!canSaveCorrection}
                 onClick={() => correctRecord.mutate()}
               >
                 Save correction
@@ -502,6 +560,10 @@ function MemoryDetailSheet({
               </div>
             )}
           </div>
+
+          <div className="text-xs text-muted-foreground">
+            Shortcuts: A accept · R reject · P pending · Cmd+C copy reference · Cmd+Enter save correction
+          </div>
         </div>
       </SheetContent>
     </Sheet>
@@ -511,12 +573,22 @@ function MemoryDetailSheet({
 export function WorkMemories() {
   const { selectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
-  const [filters, setFilters] = useState<MemoryFilters>(DEFAULT_FILTERS);
+  const { pushToast } = useToast();
+  const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
+  const searchAgentId = searchParams.get("agentId") ?? "";
+  const [filters, setFilters] = useState<MemoryFilters>(() => ({ ...DEFAULT_FILTERS, agentId: searchAgentId }));
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
+  const [selectedRecordIds, setSelectedRecordIds] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     setBreadcrumbs([{ label: "Memories" }]);
   }, [setBreadcrumbs]);
+
+  useEffect(() => {
+    setFilters((current) => current.agentId === searchAgentId ? current : { ...current, agentId: searchAgentId });
+  }, [searchAgentId]);
 
   const providersQuery = useQuery({
     queryKey: selectedCompanyId ? queryKeys.memory.providers(selectedCompanyId) : ["memory", "providers", "none"],
@@ -554,21 +626,97 @@ export function WorkMemories() {
     queryFn: () => memoryApi.listRecords(selectedCompanyId!, recordFilters),
     enabled: !!selectedCompanyId,
   });
+  const countFilters = useMemo(
+    () => Object.fromEntries(REVIEW_TABS.map((tab) => [tab, buildCountFilters(filters, tab)])) as Record<ReviewTab, Partial<MemoryListRecordsQuery>>,
+    [filters],
+  );
+  const pendingCountQuery = useQuery({
+    queryKey: selectedCompanyId ? queryKeys.memory.recordCount(selectedCompanyId, countFilters.pending) : ["memory", "records", "count", "pending", "none"],
+    queryFn: () => memoryApi.countRecords(selectedCompanyId!, countFilters.pending),
+    enabled: !!selectedCompanyId,
+  });
+  const acceptedCountQuery = useQuery({
+    queryKey: selectedCompanyId ? queryKeys.memory.recordCount(selectedCompanyId, countFilters.accepted) : ["memory", "records", "count", "accepted", "none"],
+    queryFn: () => memoryApi.countRecords(selectedCompanyId!, countFilters.accepted),
+    enabled: !!selectedCompanyId,
+  });
+  const rejectedCountQuery = useQuery({
+    queryKey: selectedCompanyId ? queryKeys.memory.recordCount(selectedCompanyId, countFilters.rejected) : ["memory", "records", "count", "rejected", "none"],
+    queryFn: () => memoryApi.countRecords(selectedCompanyId!, countFilters.rejected),
+    enabled: !!selectedCompanyId,
+  });
+  const revokedCountQuery = useQuery({
+    queryKey: selectedCompanyId ? queryKeys.memory.recordCount(selectedCompanyId, countFilters.revoked) : ["memory", "records", "count", "revoked", "none"],
+    queryFn: () => memoryApi.countRecords(selectedCompanyId!, countFilters.revoked),
+    enabled: !!selectedCompanyId,
+  });
 
   const agentsById = useMemo(() => new Map((agentsQuery.data ?? []).map((agent) => [agent.id, agent])), [agentsQuery.data]);
   const projectsById = useMemo(() => new Map((projectsQuery.data ?? []).map((project) => [project.id, project])), [projectsQuery.data]);
   const issuesById = useMemo(() => new Map((issuesQuery.data ?? []).map((issue) => [issue.id, issue])), [issuesQuery.data]);
-  const selectedRecord = (recordsQuery.data ?? []).find((record) => record.id === selectedRecordId) ?? null;
+  const records = recordsQuery.data ?? [];
+  const selectedRecord = records.find((record) => record.id === selectedRecordId) ?? null;
 
-  const counts = useMemo(() => {
-    const records = recordsQuery.data ?? [];
+  const counts = {
+    pending: pendingCountQuery.data?.count ?? 0,
+    accepted: acceptedCountQuery.data?.count ?? 0,
+    rejected: rejectedCountQuery.data?.count ?? 0,
+    revoked: revokedCountQuery.data?.count ?? 0,
+  };
+  const countsLoading = pendingCountQuery.isLoading || acceptedCountQuery.isLoading || rejectedCountQuery.isLoading || revokedCountQuery.isLoading;
+
+  const selectedVisibleRecords = useMemo(
+    () => records.filter((record) => selectedRecordIds.has(record.id)),
+    [records, selectedRecordIds],
+  );
+  const allVisibleSelected = records.length > 0 && records.every((record) => selectedRecordIds.has(record.id));
+  const someVisibleSelected = selectedVisibleRecords.length > 0 && !allVisibleSelected;
+
+  const bulkReview = useMutation({
+    mutationFn: async (reviewState: "pending" | "accepted" | "rejected") => {
+      if (!selectedCompanyId) throw new Error("No company selected");
+      const recordIds = Array.from(selectedRecordIds);
+      await Promise.all(
+        recordIds.map((recordId) =>
+          memoryApi.reviewRecord(selectedCompanyId, recordId, {
+            reviewState,
+            note: null,
+          }),
+        ),
+      );
+      return recordIds.length;
+    },
+    onSuccess: async (count) => {
+      setSelectedRecordIds(new Set());
+      await queryClient.invalidateQueries({ queryKey: queryKeys.memory.all });
+      pushToast({ title: `${count} memories reviewed`, tone: "success" });
+    },
+    onError: (error) => {
+      pushToast({
+        title: "Failed to review memories",
+        body: error instanceof Error ? error.message : "Unknown error",
+        tone: "error",
+      });
+    },
+  });
+
+  useEffect(() => {
+    const visibleIds = new Set(records.map((record) => record.id));
+    setSelectedRecordIds((current) => {
+      const next = new Set(Array.from(current).filter((id) => visibleIds.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [records]);
+
+  const visibleCounts = useMemo(() => {
     return {
       total: records.length,
       pending: records.filter((record) => record.reviewState === "pending").length,
       accepted: records.filter((record) => record.reviewState === "accepted").length,
       rejected: records.filter((record) => record.reviewState === "rejected").length,
+      revoked: records.filter((record) => memoryReviewStatus(record) === "revoked").length,
     };
-  }, [recordsQuery.data]);
+  }, [records]);
 
   if (!selectedCompanyId) {
     return <EmptyState icon={Database} message="Select a company to view memories." />;
@@ -579,33 +727,192 @@ export function WorkMemories() {
     ...(providersQuery.data ?? []).map((provider) => ({ value: provider.key, label: provider.displayName })),
   ];
   const bindingById = new Map((bindingsQuery.data ?? []).map((binding) => [binding.id, binding]));
-
+  const activeReviewTab: ReviewTab | null =
+    filters.retentionState === "revoked" && filters.includeRevoked
+      ? "revoked"
+      : filters.reviewState || null;
+  const activeFilterChips = [
+    activeReviewTab
+      ? {
+          key: "review",
+          label: `Review: ${labelize(activeReviewTab)}`,
+          onClear: () =>
+            setFilters((current) => ({
+              ...current,
+              reviewState: "",
+              retentionState: activeReviewTab === "revoked" ? "" : current.retentionState,
+              includeRevoked: activeReviewTab === "revoked" ? false : current.includeRevoked,
+            })),
+        }
+      : null,
+    filters.q.trim()
+      ? { key: "q", label: `Search: ${filters.q.trim()}`, onClear: () => setFilters((current) => ({ ...current, q: "" })) }
+      : null,
+    filters.providerKey
+      ? {
+          key: "provider",
+          label: `Provider: ${providerOptions.find((option) => option.value === filters.providerKey)?.label ?? filters.providerKey}`,
+          onClear: () => setFilters((current) => ({ ...current, providerKey: "" })),
+        }
+      : null,
+    filters.projectId
+      ? {
+          key: "project",
+          label: `Project: ${projectsById.get(filters.projectId)?.name ?? filters.projectId}`,
+          onClear: () => setFilters((current) => ({ ...current, projectId: "" })),
+        }
+      : null,
+    filters.agentId
+      ? {
+          key: "agent",
+          label: `Agent: ${agentsById.get(filters.agentId)?.name ?? filters.agentId}`,
+          onClear: () => setFilters((current) => ({ ...current, agentId: "" })),
+        }
+      : null,
+    filters.issueId
+      ? {
+          key: "task",
+          label: `Task: ${issuesById.get(filters.issueId)?.identifier ?? filters.issueId.slice(0, 8)}`,
+          onClear: () => setFilters((current) => ({ ...current, issueId: "" })),
+        }
+      : null,
+    filters.runId.trim()
+      ? {
+          key: "run",
+          label: `Run: ${filters.runId.trim().slice(0, 8)}`,
+          onClear: () => setFilters((current) => ({ ...current, runId: "" })),
+        }
+      : null,
+    filters.sourceKind
+      ? {
+          key: "source",
+          label: `Source: ${labelize(filters.sourceKind)}`,
+          onClear: () => setFilters((current) => ({ ...current, sourceKind: "" })),
+        }
+      : null,
+    filters.sensitivityLabel
+      ? {
+          key: "sensitivity",
+          label: `Sensitivity: ${filters.sensitivityLabel}`,
+          onClear: () => setFilters((current) => ({ ...current, sensitivityLabel: "" })),
+        }
+      : null,
+    filters.retentionState && activeReviewTab !== "revoked"
+      ? {
+          key: "retention",
+          label: `Retention: ${filters.retentionState}`,
+          onClear: () => setFilters((current) => ({ ...current, retentionState: "" })),
+        }
+      : null,
+    filters.scopeType
+      ? {
+          key: "scope",
+          label: `Scope: ${filters.scopeType}`,
+          onClear: () => setFilters((current) => ({ ...current, scopeType: "" })),
+        }
+      : null,
+    filters.includeRevoked && activeReviewTab !== "revoked"
+      ? {
+          key: "include-revoked",
+          label: "Including revoked",
+          onClear: () => setFilters((current) => ({ ...current, includeRevoked: false })),
+        }
+      : null,
+    filters.includeExpired
+      ? {
+          key: "include-expired",
+          label: "Including expired",
+          onClear: () => setFilters((current) => ({ ...current, includeExpired: false })),
+        }
+      : null,
+    filters.includeSuperseded
+      ? {
+          key: "include-superseded",
+          label: "Including superseded",
+          onClear: () => setFilters((current) => ({ ...current, includeSuperseded: false })),
+        }
+      : null,
+  ].filter(Boolean) as Array<{ key: string; label: string; onClear: () => void }>;
+  const selectReviewTab = (tab: ReviewTab) => {
+    setFilters((current) => ({
+      ...current,
+      reviewState: tab === "revoked" ? "" : tab,
+      retentionState: tab === "revoked" ? "revoked" : current.retentionState === "revoked" ? "" : current.retentionState,
+      includeRevoked: tab === "revoked" ? true : false,
+    }));
+    setSelectedRecordIds(new Set());
+  };
+  const toggleRecordSelection = (recordId: string, checked: boolean) => {
+    setSelectedRecordIds((current) => {
+      const next = new Set(current);
+      if (checked) next.add(recordId);
+      else next.delete(recordId);
+      return next;
+    });
+  };
+  const toggleAllVisible = (checked: boolean) => {
+    setSelectedRecordIds((current) => {
+      const next = new Set(current);
+      if (checked) {
+        records.forEach((record) => next.add(record.id));
+      } else {
+        records.forEach((record) => next.delete(record.id));
+      }
+      return next;
+    });
+  };
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-5">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <div className="flex items-center gap-2">
             <Database className="h-5 w-5 text-muted-foreground" />
-            <h1 className="text-xl font-semibold">Memories</h1>
+            <h1 className="text-xl font-bold">Memories</h1>
           </div>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <span className="rounded-full bg-accent px-2.5 py-1 text-xs text-muted-foreground">{counts.total} visible</span>
-            <span className="rounded-full bg-amber-500/10 px-2.5 py-1 text-xs text-amber-800 dark:text-amber-300">{counts.pending} pending</span>
-            <span className="rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-700 dark:text-emerald-300">{counts.accepted} accepted</span>
-            <span className="rounded-full bg-rose-500/10 px-2.5 py-1 text-xs text-rose-700 dark:text-rose-300">{counts.rejected} rejected</span>
+          <div className="mt-3 flex min-h-7 flex-wrap gap-2">
+            {activeFilterChips.length === 0 ? (
+              <span className="text-xs text-muted-foreground">No filters applied</span>
+            ) : (
+              activeFilterChips.map((chip) => (
+                <button
+                  key={chip.key}
+                  type="button"
+                  className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+                  onClick={chip.onClear}
+                >
+                  {chip.label}
+                  <X className="h-3 w-3" />
+                </button>
+              ))
+            )}
           </div>
         </div>
-        <Button variant="outline" size="sm" onClick={() => setFilters(DEFAULT_FILTERS)}>
-          <RotateCcw className="mr-2 h-4 w-4" />
-          Reset
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setFilters({ ...DEFAULT_FILTERS, agentId: searchAgentId });
+              setSelectedRecordIds(new Set());
+            }}
+          >
+            <RotateCcw className="mr-2 h-4 w-4" />
+            Reset
+          </Button>
+        </div>
       </div>
 
-      <div className="rounded-md border border-border px-4 py-4">
-        <div className="mb-3 flex items-center gap-2 text-sm font-medium">
-          <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
-          Filters
-        </div>
+      <Collapsible open={filtersOpen} onOpenChange={setFiltersOpen} className="rounded-md border border-border px-4 py-4">
+        <CollapsibleTrigger asChild>
+          <Button variant="ghost" className="w-full justify-between px-0 hover:bg-transparent">
+            <span className="flex items-center gap-2 text-sm font-medium">
+              <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
+              Filters
+            </span>
+            <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", filtersOpen && "rotate-180")} />
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="pt-4">
         <div className="grid gap-3 lg:grid-cols-4">
           <label className="space-y-1 text-xs font-medium text-muted-foreground lg:col-span-2">
             <span>Search</span>
@@ -721,86 +1028,141 @@ export function WorkMemories() {
             ]}
           />
         </div>
-        <div className="mt-3 flex flex-wrap gap-4 text-sm">
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={filters.includeRevoked}
-              onChange={(event) => setFilters((current) => ({ ...current, includeRevoked: event.target.checked }))}
-            />
-            Include revoked
-          </label>
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={filters.includeExpired}
-              onChange={(event) => setFilters((current) => ({ ...current, includeExpired: event.target.checked }))}
-            />
-            Include expired
-          </label>
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={filters.includeSuperseded}
-              onChange={(event) => setFilters((current) => ({ ...current, includeSuperseded: event.target.checked }))}
-            />
-            Include superseded
-          </label>
+        <div className="mt-4 rounded-md border border-border px-3 py-3">
+          <div className="mb-3 text-xs font-medium text-muted-foreground">Include records</div>
+          <div className="flex flex-wrap gap-4 text-sm">
+            <Label className="gap-2">
+              <Checkbox
+                checked={filters.includeRevoked}
+                onCheckedChange={(checked) => setFilters((current) => ({ ...current, includeRevoked: checked === true }))}
+              />
+              Include revoked
+            </Label>
+            <Label className="gap-2">
+              <Checkbox
+                checked={filters.includeExpired}
+                onCheckedChange={(checked) => setFilters((current) => ({ ...current, includeExpired: checked === true }))}
+              />
+              Include expired
+            </Label>
+            <Label className="gap-2">
+              <Checkbox
+                checked={filters.includeSuperseded}
+                onCheckedChange={(checked) => setFilters((current) => ({ ...current, includeSuperseded: checked === true }))}
+              />
+              Include superseded
+            </Label>
+          </div>
         </div>
+        </CollapsibleContent>
+      </Collapsible>
+
+      <div className="flex flex-wrap items-center gap-2">
+        {REVIEW_TABS.map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            className={cn(
+              "rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
+              activeReviewTab === tab
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-border bg-background text-muted-foreground hover:border-primary/50 hover:text-foreground",
+            )}
+            onClick={() => selectReviewTab(tab)}
+          >
+            {labelize(tab)} {countsLoading ? "" : `(${counts[tab]})`}
+          </button>
+        ))}
+        <span className="ml-auto text-xs text-muted-foreground">
+          Showing {visibleCounts.total} records from this page
+        </span>
       </div>
 
       {recordsQuery.isLoading ? (
-        <div className="rounded-md border border-border px-4 py-8 text-sm text-muted-foreground">Loading memories...</div>
+        <div className="rounded-md border border-border">
+          {Array.from({ length: 5 }).map((_, index) => (
+            <div key={index} className="grid gap-3 border-b border-border px-4 py-4 last:border-b-0 md:grid-cols-[32px_1fr_220px_160px]">
+              <Skeleton className="h-4 w-4" />
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-48" />
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-4/5" />
+              </div>
+              <div className="space-y-2">
+                <Skeleton className="h-3 w-32" />
+                <Skeleton className="h-3 w-24" />
+              </div>
+              <div className="space-y-2 md:justify-self-end">
+                <Skeleton className="h-3 w-28" />
+                <Skeleton className="h-3 w-20" />
+              </div>
+            </div>
+          ))}
+        </div>
       ) : recordsQuery.error ? (
-        <div className="rounded-md border border-destructive/40 px-4 py-4 text-sm text-destructive">
-          {recordsQuery.error.message}
-        </div>
-      ) : (recordsQuery.data ?? []).length === 0 ? (
-        <div className="rounded-md border border-dashed border-border px-4 py-10 text-sm text-muted-foreground">
-          No memory records match the current filters.
-        </div>
+        <EmptyState
+          icon={AlertTriangle}
+          title="Memory records failed to load"
+          message={recordsQuery.error.message}
+          action="Retry"
+          onAction={() => void recordsQuery.refetch()}
+          tone="destructive"
+        />
+      ) : records.length === 0 ? (
+        <EmptyState
+          icon={Database}
+          title="No memories match these filters"
+          message="Try widening review state or clearing filters."
+        />
       ) : (
         <div className="overflow-hidden rounded-md border border-border">
+          <div className="grid gap-3 border-b border-border bg-muted/30 px-4 py-3 text-xs font-medium text-muted-foreground md:grid-cols-[32px_1fr_220px_160px]">
+            <div>
+              <Checkbox
+                checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false}
+                onCheckedChange={(checked) => toggleAllVisible(checked === true)}
+                aria-label="Select all visible memories"
+              />
+            </div>
+            <div>Memory</div>
+            <div className="hidden md:block">Source</div>
+            <div className="hidden text-right md:block">Context</div>
+          </div>
           <div className="divide-y divide-border">
-            {(recordsQuery.data ?? []).map((record) => {
-              const sourceUrl = sourceHref(record, issuesById);
-              const agent = record.scope.agentId ? agentsById.get(record.scope.agentId) : null;
-              const project = record.scope.projectId ? projectsById.get(record.scope.projectId) : null;
-              const binding = bindingById.get(record.bindingId);
-              return (
-                <button
-                  key={record.id}
-                  type="button"
-                  className="grid w-full gap-3 px-4 py-4 text-left transition-colors hover:bg-accent/30 lg:grid-cols-[1fr_220px_160px]"
-                  onClick={() => setSelectedRecordId(record.id)}
-                >
-                  <div className="min-w-0 space-y-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <ReviewBadge record={record} />
-                      <span className="text-sm font-medium">{recordTitle(record)}</span>
-                      <span className="rounded-full bg-accent px-2 py-0.5 text-[11px] text-muted-foreground">
-                        {binding?.name ?? binding?.key ?? record.providerKey}
-                      </span>
-                    </div>
-                    <p className="text-sm leading-6 text-foreground/85">{summarizeRecord(record)}</p>
-                  </div>
-                  <div className="min-w-0 text-xs text-muted-foreground">
-                    <div className="font-medium text-foreground">{sourceLabel(record, issuesById)}</div>
-                    <div>{labelize(record.source?.kind ?? record.scopeType)}</div>
-                    {sourceUrl ? <div className="mt-1 text-primary">Open source</div> : null}
-                  </div>
-                  <div className="text-xs text-muted-foreground lg:text-right">
-                    {project ? <div className="truncate">{project.name}</div> : null}
-                    {agent ? <div className="truncate">{agent.name}</div> : null}
-                    <div>{relativeTime(record.createdAt)}</div>
-                    <div>{record.sensitivityLabel}</div>
-                  </div>
-                </button>
-              );
-            })}
+            {records.map((record) => (
+              <MemoryRecordRow
+                key={record.id}
+                record={record}
+                binding={bindingById.get(record.bindingId)}
+                issuesById={issuesById}
+                agentsById={agentsById}
+                projectsById={projectsById}
+                onSelect={() => setSelectedRecordId(record.id)}
+                selected={selectedRecordIds.has(record.id)}
+                onSelectedChange={(checked) => toggleRecordSelection(record.id, checked)}
+              />
+            ))}
           </div>
         </div>
       )}
+
+      {selectedRecordIds.size > 0 ? (
+        <div className="sticky bottom-4 z-10 mx-auto flex w-fit max-w-full flex-wrap items-center gap-2 rounded-md border border-border bg-background px-3 py-2 shadow-lg">
+          <span className="px-1 text-sm font-medium">{selectedRecordIds.size} selected</span>
+          <Button size="sm" variant="outline" disabled={bulkReview.isPending} onClick={() => bulkReview.mutate("accepted")}>
+            <Check className="mr-2 h-4 w-4" />
+            Accept
+          </Button>
+          <Button size="sm" variant="outline" disabled={bulkReview.isPending} onClick={() => bulkReview.mutate("rejected")}>
+            <X className="mr-2 h-4 w-4" />
+            Reject
+          </Button>
+          <Button size="sm" variant="outline" disabled={bulkReview.isPending} onClick={() => bulkReview.mutate("pending")}>
+            <RotateCcw className="mr-2 h-4 w-4" />
+            Mark pending
+          </Button>
+        </div>
+      ) : null}
 
       <MemoryDetailSheet
         companyId={selectedCompanyId}

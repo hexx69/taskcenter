@@ -38,6 +38,8 @@ export const queryKeys = {
     projectBinding: (projectId: string) => ["memory", "project-binding", projectId] as const,
     records: (companyId: string, filters?: Record<string, string | number | boolean | Date | undefined>) =>
       ["memory", companyId, "records", filters ?? {}] as const,
+    recordCount: (companyId: string, filters?: Record<string, string | number | boolean | Date | undefined>) =>
+      ["memory", companyId, "records", "count", filters ?? {}] as const,
     operations: (companyId: string, filters?: Record<string, string | number | boolean | undefined>) =>
       ["memory", companyId, "operations", filters ?? {}] as const,
   },
