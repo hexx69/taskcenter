@@ -10,7 +10,7 @@ import type {
   PluginLauncherBounds,
   PluginLauncherRenderEnvironment,
 } from "../constants.js";
-import type { MemoryProviderCapabilities } from "./memory.js";
+import type { MemoryProviderCapabilities, MemoryProviderConfigMetadata } from "./memory.js";
 
 // ---------------------------------------------------------------------------
 // JSON Schema placeholder – plugins declare config schemas as JSON Schema
@@ -202,6 +202,8 @@ export interface PluginMemoryProviderDeclaration {
   capabilities?: Partial<MemoryProviderCapabilities>;
   /** Optional JSON Schema for provider-specific binding config. */
   configSchema?: JsonSchema;
+  /** Optional UI metadata for rendering provider-specific binding config. */
+  configMetadata?: MemoryProviderConfigMetadata;
 }
 
 // ---------------------------------------------------------------------------

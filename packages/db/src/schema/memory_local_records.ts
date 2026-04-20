@@ -10,6 +10,7 @@ import { memoryOperations } from "./memory_operations.js";
 import type {
   MemoryPrincipalType,
   MemoryRetentionState,
+  MemoryReviewState,
   MemoryScopeType,
   MemorySensitivityLabel,
   MemorySourceKind,
@@ -50,6 +51,11 @@ export const memoryLocalRecords = pgTable(
     retentionPolicy: jsonb("retention_policy").$type<Record<string, unknown> | null>(),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     retentionState: text("retention_state").$type<MemoryRetentionState>().notNull().default("active"),
+    reviewState: text("review_state").$type<MemoryReviewState>().notNull().default("pending"),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    reviewedByActorType: text("reviewed_by_actor_type").$type<MemoryPrincipalType>(),
+    reviewedByActorId: text("reviewed_by_actor_id"),
+    reviewNote: text("review_note"),
     citationJson: jsonb("citation_json").$type<Record<string, unknown> | null>(),
     supersedesRecordId: uuid("supersedes_record_id"),
     supersededByRecordId: uuid("superseded_by_record_id"),
@@ -93,6 +99,11 @@ export const memoryLocalRecords = pgTable(
       table.companyId,
       table.retentionState,
       table.expiresAt,
+      table.createdAt,
+    ),
+    companyReviewCreatedIdx: index("memory_local_records_company_review_created_idx").on(
+      table.companyId,
+      table.reviewState,
       table.createdAt,
     ),
     contentSearchIdx: index("memory_local_records_fts_idx").using(

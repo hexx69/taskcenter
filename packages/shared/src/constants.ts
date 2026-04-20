@@ -387,7 +387,7 @@ export const PERMISSION_KEYS = [
 ] as const;
 export type PermissionKey = (typeof PERMISSION_KEYS)[number];
 
-export const MEMORY_BINDING_TARGET_TYPES = ["company", "agent"] as const;
+export const MEMORY_BINDING_TARGET_TYPES = ["company", "project", "agent"] as const;
 export type MemoryBindingTargetType = (typeof MEMORY_BINDING_TARGET_TYPES)[number];
 
 export const MEMORY_PROVIDER_KINDS = ["builtin", "plugin"] as const;
@@ -402,6 +402,7 @@ export const MEMORY_OPERATION_TYPES = [
   "forget",
   "revoke",
   "correct",
+  "review",
   "retention_sweep",
 ] as const;
 export type MemoryOperationType = (typeof MEMORY_OPERATION_TYPES)[number];
@@ -451,6 +452,9 @@ export type MemorySensitivityLabel = (typeof MEMORY_SENSITIVITY_LABELS)[number];
 
 export const MEMORY_RETENTION_STATES = ["active", "expired", "revoked"] as const;
 export type MemoryRetentionState = (typeof MEMORY_RETENTION_STATES)[number];
+
+export const MEMORY_REVIEW_STATES = ["pending", "accepted", "rejected"] as const;
+export type MemoryReviewState = (typeof MEMORY_REVIEW_STATES)[number];
 
 // ---------------------------------------------------------------------------
 // Plugin System — see doc/plugins/PLUGIN_SPEC.md for the full specification
@@ -602,6 +606,7 @@ export const PLUGIN_RESERVED_COMPANY_ROUTE_SEGMENTS = [
   "agents",
   "projects",
   "issues",
+  "memories",
   "goals",
   "approvals",
   "costs",

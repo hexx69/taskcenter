@@ -24,6 +24,13 @@ export interface QmdQueryHit {
 }
 
 export interface QmdClient {
+  checkHealth?(input: {
+    binaryPath?: string | null;
+  }): Promise<{
+    available: boolean;
+    binaryPath: string;
+    message: string;
+  }>;
   refreshIndex(input: {
     bindingDir: string;
     binaryPath?: string | null;
@@ -98,6 +105,24 @@ export async function defaultQmdExecutor(
 
 export function createQmdClient(executor: QmdExecutor = defaultQmdExecutor): QmdClient {
   return {
+    async checkHealth(input) {
+      const binaryPath = input.binaryPath ?? "qmd";
+      try {
+        await executor(binaryPath, ["--version"], { cwd: process.cwd(), timeoutMs: 5_000 });
+        return {
+          available: true,
+          binaryPath,
+          message: "qmd binary is available",
+        };
+      } catch (error) {
+        return {
+          available: false,
+          binaryPath,
+          message: error instanceof Error ? error.message : "qmd binary check failed",
+        };
+      }
+    },
+
     async refreshIndex(input) {
       await executor(
         input.binaryPath ?? "qmd",

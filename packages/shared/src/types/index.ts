@@ -121,6 +121,13 @@ export type { Goal } from "./goal.js";
 export type { Approval, ApprovalComment } from "./approval.js";
 export type {
   MemoryProviderCapabilities,
+  MemoryProviderConfigFieldInput,
+  MemoryProviderConfigFieldOption,
+  MemoryProviderConfigFieldMetadata,
+  MemoryProviderHealthStatus,
+  MemoryProviderHealthCheck,
+  MemoryProviderConfigPathSuggestion,
+  MemoryProviderConfigMetadata,
   MemoryProviderDescriptor,
   MemoryUsage,
   MemoryGovernedScope,
@@ -140,6 +147,8 @@ export type {
   MemoryForgetResult,
   MemoryRevokeSelector,
   MemoryRevokeResult,
+  MemoryReview,
+  MemoryReviewResult,
   MemoryCorrectResult,
   MemoryRetentionSweepResult,
   MemoryProviderQueryInput,

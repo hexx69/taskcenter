@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, inArray, isNull, isNotNull, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, isNull, isNotNull, lte, or, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   agents,
@@ -8,10 +8,12 @@ import {
   memoryExtractionJobs,
   memoryLocalRecords,
   memoryOperations,
+  projects,
 } from "@paperclipai/db";
 import type {
   MemoryBinding,
   MemoryBindingTarget,
+  MemoryBindingTargetType,
   MemoryCapture,
   MemoryCaptureResult,
   MemoryCitation,
@@ -34,6 +36,8 @@ import type {
   MemoryRetentionSweepResult,
   MemoryRevoke,
   MemoryRevokeResult,
+  MemoryReview,
+  MemoryReviewResult,
   MemoryResolvedBinding,
   MemoryScope,
   MemoryScopeType,
@@ -41,7 +45,7 @@ import type {
   MemorySourceRef,
   MemoryUsage,
 } from "@paperclipai/shared";
-import { createMemoryBindingSchema, memoryCorrectSchema, memoryRetentionSweepSchema, memoryRevokeSchema, updateMemoryBindingSchema } from "@paperclipai/shared";
+import { createMemoryBindingSchema, memoryCorrectSchema, memoryRetentionSweepSchema, memoryReviewSchema, memoryRevokeSchema, updateMemoryBindingSchema } from "@paperclipai/shared";
 import { z } from "zod";
 import { conflict, notFound, unprocessable } from "../errors.js";
 import { costService } from "./costs.js";
@@ -116,6 +120,67 @@ const LOCAL_BASIC_PROVIDER: MemoryProviderDescriptor = {
       enableIssueDocumentCapture: { type: "boolean", default: true },
       maxHydrateSnippets: { type: "integer", minimum: 1, maximum: 10, default: 5 },
     },
+  },
+  configMetadata: {
+    suggestedConfig: {
+      enablePreRunHydrate: true,
+      enablePostRunCapture: true,
+      enableIssueCommentCapture: false,
+      enableIssueDocumentCapture: true,
+      maxHydrateSnippets: 5,
+    },
+    fields: [
+      {
+        key: "enablePreRunHydrate",
+        label: "Pre-run hydrate",
+        description: "Read relevant memory before agent runs.",
+        input: "boolean",
+        defaultValue: true,
+        suggestedValue: true,
+      },
+      {
+        key: "enablePostRunCapture",
+        label: "Post-run capture",
+        description: "Capture run summaries after agent runs.",
+        input: "boolean",
+        defaultValue: true,
+        suggestedValue: true,
+      },
+      {
+        key: "enableIssueCommentCapture",
+        label: "Issue comment capture",
+        description: "Capture issue comments into memory.",
+        input: "boolean",
+        defaultValue: false,
+        suggestedValue: false,
+      },
+      {
+        key: "enableIssueDocumentCapture",
+        label: "Issue document capture",
+        description: "Capture issue documents into memory.",
+        input: "boolean",
+        defaultValue: true,
+        suggestedValue: true,
+      },
+      {
+        key: "maxHydrateSnippets",
+        label: "Hydration snippets",
+        description: "Maximum snippets to include when hydrating prompts.",
+        input: "number",
+        defaultValue: 5,
+        suggestedValue: 5,
+        min: 1,
+        max: 10,
+      },
+    ],
+    healthChecks: [
+      {
+        key: "postgres",
+        label: "Postgres storage",
+        status: "ok",
+        message: "Local basic memory stores records in the Paperclip database.",
+      },
+    ],
   },
 };
 
@@ -208,6 +273,7 @@ function canReadRecord(companyId: string, record: MemoryRecord, actor: ActorInfo
   const maxSensitivity = maxSensitivityForActor(actor, scope);
   if (SENSITIVITY_RANK[record.sensitivityLabel] > SENSITIVITY_RANK[maxSensitivity]) return false;
   if (actor.actorType !== "agent") return true;
+  if (record.reviewState !== "accepted") return false;
   return scopeMatches(record, deriveAllowedScopes(companyId, scope, actor));
 }
 
@@ -404,6 +470,11 @@ function mapRecord(row: RecordRow): MemoryRecord {
         : null,
     expiresAt: row.expiresAt ?? null,
     retentionState: row.retentionState ?? "active",
+    reviewState: row.reviewState ?? "pending",
+    reviewedAt: row.reviewedAt ?? null,
+    reviewedBy:
+      row.reviewedByActorType && row.reviewedByActorId ? { type: row.reviewedByActorType, id: row.reviewedByActorId } : null,
+    reviewNote: row.reviewNote ?? null,
     citation: citationFromRow(row.citationJson),
     supersedesRecordId: row.supersedesRecordId ?? null,
     supersededByRecordId: row.supersededByRecordId ?? null,
@@ -470,6 +541,7 @@ function buildRecordVisibilityConditions(
   if (!options?.includeSuperseded) {
     conditions.push(isNull(memoryLocalRecords.supersededByRecordId));
   }
+  conditions.push(eq(memoryLocalRecords.reviewState, "accepted"));
 
   const maxSensitivity = maxSensitivityForActor(actor, scope);
   conditions.push(inArray(memoryLocalRecords.sensitivityLabel, allowedSensitivityLabels(maxSensitivity)));
@@ -561,7 +633,66 @@ export function memoryService(
     return config;
   }
 
+  function resolutionSource(
+    targetType: MemoryBindingTargetType | null,
+    bindingKey?: string | null,
+  ): MemoryResolvedBinding["source"] {
+    if (bindingKey) return "binding_key";
+    if (targetType === "agent") return "agent_override";
+    if (targetType === "project") return "project_override";
+    if (targetType === "company") return "company_default";
+    return "unconfigured";
+  }
+
+  async function findTargetBinding(
+    companyId: string,
+    targetType: MemoryBindingTargetType,
+    targetId: string,
+  ) {
+    return db
+      .select({
+        target: memoryBindingTargets,
+        binding: memoryBindings,
+      })
+      .from(memoryBindingTargets)
+      .innerJoin(memoryBindings, eq(memoryBindingTargets.bindingId, memoryBindings.id))
+      .where(
+        and(
+          eq(memoryBindingTargets.companyId, companyId),
+          eq(memoryBindingTargets.targetType, targetType),
+          eq(memoryBindingTargets.targetId, targetId),
+        ),
+      )
+      .then((rows) => rows[0] ?? null);
+  }
+
+  async function assertScopeTargetsBelongToCompany(companyId: string, scope: MemoryScope) {
+    if (scope.agentId) {
+      const agent = await db
+        .select({ companyId: agents.companyId })
+        .from(agents)
+        .where(eq(agents.id, scope.agentId))
+        .then((rows) => rows[0] ?? null);
+      if (!agent || agent.companyId !== companyId) {
+        throw unprocessable("Memory scope agent does not belong to company");
+      }
+    }
+
+    if (scope.projectId) {
+      const project = await db
+        .select({ companyId: projects.companyId })
+        .from(projects)
+        .where(eq(projects.id, scope.projectId))
+        .then((rows) => rows[0] ?? null);
+      if (!project || project.companyId !== companyId) {
+        throw unprocessable("Memory scope project does not belong to company");
+      }
+    }
+  }
+
   async function resolveBindingInternal(companyId: string, scope: MemoryScope, bindingKey?: string | null) {
+    await assertScopeTargetsBelongToCompany(companyId, scope);
+    const checkedTargetTypes: MemoryBindingTargetType[] = [];
     if (bindingKey) {
       const binding = await db
         .select()
@@ -573,61 +704,58 @@ export function memoryService(
         targetType: null,
         targetId: null,
         binding,
+        source: resolutionSource(null, bindingKey),
+        checkedTargetTypes,
       };
     }
 
     const agentId = scope.agentId ?? null;
     if (agentId) {
-      const target = await db
-        .select({
-          target: memoryBindingTargets,
-          binding: memoryBindings,
-        })
-        .from(memoryBindingTargets)
-        .innerJoin(memoryBindings, eq(memoryBindingTargets.bindingId, memoryBindings.id))
-        .where(
-          and(
-            eq(memoryBindingTargets.companyId, companyId),
-            eq(memoryBindingTargets.targetType, "agent"),
-            eq(memoryBindingTargets.targetId, agentId),
-          ),
-        )
-        .then((rows) => rows[0] ?? null);
+      checkedTargetTypes.push("agent");
+      const target = await findTargetBinding(companyId, "agent", agentId);
       if (target) {
         return {
           targetType: target.target.targetType,
           targetId: target.target.targetId,
           binding: target.binding,
+          source: resolutionSource(target.target.targetType),
+          checkedTargetTypes,
         };
       }
     }
 
-    const target = await db
-      .select({
-        target: memoryBindingTargets,
-        binding: memoryBindings,
-      })
-      .from(memoryBindingTargets)
-      .innerJoin(memoryBindings, eq(memoryBindingTargets.bindingId, memoryBindings.id))
-      .where(
-        and(
-          eq(memoryBindingTargets.companyId, companyId),
-          eq(memoryBindingTargets.targetType, "company"),
-          eq(memoryBindingTargets.targetId, companyId),
-        ),
-      )
-      .then((rows) => rows[0] ?? null);
+    const projectId = scope.projectId ?? null;
+    if (projectId) {
+      checkedTargetTypes.push("project");
+      const target = await findTargetBinding(companyId, "project", projectId);
+      if (target) {
+        return {
+          targetType: target.target.targetType,
+          targetId: target.target.targetId,
+          binding: target.binding,
+          source: resolutionSource(target.target.targetType),
+          checkedTargetTypes,
+        };
+      }
+    }
+
+    checkedTargetTypes.push("company");
+    const target = await findTargetBinding(companyId, "company", companyId);
 
     return target
       ? {
           targetType: target.target.targetType,
           targetId: target.target.targetId,
           binding: target.binding,
+          source: resolutionSource(target.target.targetType),
+          checkedTargetTypes,
         }
       : {
           targetType: null,
           targetId: null,
           binding: null,
+          source: "unconfigured" as const,
+          checkedTargetTypes,
         };
   }
 
@@ -676,6 +804,7 @@ export function memoryService(
       content: string;
       summary?: string | null;
       metadata?: Record<string, unknown>;
+      reviewState?: MemoryRecord["reviewState"];
     },
     operationId: string,
   ) {
@@ -718,6 +847,7 @@ export function memoryService(
         retentionPolicy: input.retentionPolicy ?? null,
         expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
         retentionState: "active",
+        reviewState: input.reviewState ?? "pending",
         citationJson: normalizeCitation(input.citation),
         createdByOperationId: operationId,
       })
@@ -767,6 +897,11 @@ export function memoryService(
           retentionPolicy: record.retentionPolicy,
           expiresAt: record.expiresAt,
           retentionState: record.retentionState,
+          reviewState: record.reviewState ?? "pending",
+          reviewedAt: record.reviewedAt ?? null,
+          reviewedByActorType: record.reviewedBy?.type ?? null,
+          reviewedByActorId: record.reviewedBy?.id ?? null,
+          reviewNote: record.reviewNote ?? null,
           citationJson: normalizeCitation(record.citation),
           supersedesRecordId: record.supersedesRecordId ?? null,
           supersededByRecordId: record.supersededByRecordId ?? null,
@@ -812,6 +947,11 @@ export function memoryService(
             retentionPolicy: record.retentionPolicy,
             expiresAt: record.expiresAt,
             retentionState: record.retentionState,
+            reviewState: record.reviewState ?? "pending",
+            reviewedAt: record.reviewedAt ?? null,
+            reviewedByActorType: record.reviewedBy?.type ?? null,
+            reviewedByActorId: record.reviewedBy?.id ?? null,
+            reviewNote: record.reviewNote ?? null,
             citationJson: normalizeCitation(record.citation),
             supersedesRecordId: record.supersedesRecordId ?? null,
             supersededByRecordId: record.supersededByRecordId ?? null,
@@ -827,23 +967,76 @@ export function memoryService(
     }
   }
 
+  async function overlayCatalogRecordState(
+    companyId: string,
+    bindingId: string,
+    records: MemoryRecord[],
+  ) {
+    if (records.length === 0) return records;
+    const rows = await db
+      .select()
+      .from(memoryLocalRecords)
+      .where(
+        and(
+          eq(memoryLocalRecords.companyId, companyId),
+          eq(memoryLocalRecords.bindingId, bindingId),
+          inArray(memoryLocalRecords.id, records.map((record) => record.id)),
+        ),
+      );
+    const catalogById = new Map(rows.map((row) => [row.id, mapRecord(row)]));
+    return records.map((record) => {
+      const catalog = catalogById.get(record.id);
+      if (!catalog) return record;
+      return {
+        ...record,
+        reviewState: catalog.reviewState,
+        reviewedAt: catalog.reviewedAt,
+        reviewedBy: catalog.reviewedBy,
+        reviewNote: catalog.reviewNote,
+        retentionState: catalog.retentionState,
+        revokedAt: catalog.revokedAt,
+        revokedBy: catalog.revokedBy,
+        revocationReason: catalog.revocationReason,
+        supersededByRecordId: catalog.supersededByRecordId,
+        deletedAt: catalog.deletedAt,
+        updatedAt: catalog.updatedAt,
+      };
+    });
+  }
+
   async function listLocalBasic(companyId: string, filters: MemoryListRecordsQuery, actor: ActorInfo) {
     const conditions = [eq(memoryLocalRecords.companyId, companyId)];
     if (filters.bindingId) conditions.push(eq(memoryLocalRecords.bindingId, filters.bindingId));
+    if (filters.providerKey) conditions.push(eq(memoryLocalRecords.providerKey, filters.providerKey));
     if (filters.scopeType) conditions.push(eq(memoryLocalRecords.scopeType, filters.scopeType));
     if (filters.scopeId) conditions.push(eq(memoryLocalRecords.scopeId, filters.scopeId));
     if (filters.ownerType) conditions.push(eq(memoryLocalRecords.ownerType, filters.ownerType));
     if (filters.ownerId) conditions.push(eq(memoryLocalRecords.ownerId, filters.ownerId));
     if (filters.sensitivityLabel) conditions.push(eq(memoryLocalRecords.sensitivityLabel, filters.sensitivityLabel));
     if (filters.retentionState) conditions.push(eq(memoryLocalRecords.retentionState, filters.retentionState));
+    if (filters.reviewState) conditions.push(eq(memoryLocalRecords.reviewState, filters.reviewState));
     if (filters.expiresBefore) conditions.push(lte(memoryLocalRecords.expiresAt, filters.expiresBefore));
     if (filters.agentId) conditions.push(eq(memoryLocalRecords.scopeAgentId, filters.agentId));
     if (filters.workspaceId) conditions.push(eq(memoryLocalRecords.scopeWorkspaceId, filters.workspaceId));
-    if (filters.issueId) conditions.push(eq(memoryLocalRecords.scopeIssueId, filters.issueId));
+    if (filters.issueId) {
+      conditions.push(or(eq(memoryLocalRecords.scopeIssueId, filters.issueId), eq(memoryLocalRecords.sourceIssueId, filters.issueId))!);
+    }
     if (filters.projectId) conditions.push(eq(memoryLocalRecords.scopeProjectId, filters.projectId));
     if (filters.teamId) conditions.push(eq(memoryLocalRecords.scopeTeamId, filters.teamId));
-    if (filters.runId) conditions.push(eq(memoryLocalRecords.scopeRunId, filters.runId));
+    if (filters.runId) {
+      conditions.push(or(eq(memoryLocalRecords.scopeRunId, filters.runId), eq(memoryLocalRecords.sourceRunId, filters.runId))!);
+    }
     if (filters.sourceKind) conditions.push(eq(memoryLocalRecords.sourceKind, filters.sourceKind));
+    if (filters.q) {
+      const pattern = `%${filters.q}%`;
+      conditions.push(
+        or(
+          ilike(memoryLocalRecords.title, pattern),
+          ilike(memoryLocalRecords.content, pattern),
+          ilike(memoryLocalRecords.summary, pattern),
+        )!,
+      );
+    }
     if (!filters.includeDeleted) conditions.push(isNull(memoryLocalRecords.deletedAt));
     if (!filters.includeRevoked) conditions.push(isNull(memoryLocalRecords.revokedAt));
     if (!filters.includeExpired) {
@@ -1135,6 +1328,40 @@ export function memoryService(
       return mapTarget(row);
     },
 
+    setProjectOverride: async (projectId: string, bindingId: string | null) => {
+      const project = await db
+        .select()
+        .from(projects)
+        .where(eq(projects.id, projectId))
+        .then((rows) => rows[0] ?? null);
+      if (!project) throw notFound("Project not found");
+
+      await db
+        .delete(memoryBindingTargets)
+        .where(
+          and(
+            eq(memoryBindingTargets.companyId, project.companyId),
+            eq(memoryBindingTargets.targetType, "project"),
+            eq(memoryBindingTargets.targetId, project.id),
+          ),
+        );
+
+      if (!bindingId) return null;
+      const binding = await getBindingOrThrow(bindingId);
+      if (binding.companyId !== project.companyId) throw unprocessable("Binding does not belong to project company");
+
+      const [row] = await db
+        .insert(memoryBindingTargets)
+        .values({
+          companyId: project.companyId,
+          bindingId,
+          targetType: "project",
+          targetId: project.id,
+        })
+        .returning();
+      return mapTarget(row);
+    },
+
     resolveBinding: async (companyId: string, scope: MemoryScope): Promise<MemoryResolvedBinding> => {
       const resolved = await resolveBindingInternal(companyId, scope, null);
       return {
@@ -1142,6 +1369,8 @@ export function memoryService(
         targetType: resolved.targetType,
         targetId: resolved.targetId,
         binding: resolved.binding ? mapBinding(resolved.binding) : null,
+        source: resolved.source,
+        checkedTargetTypes: resolved.checkedTargetTypes,
       };
     },
 
@@ -1174,7 +1403,7 @@ export function memoryService(
           intent: data.intent,
           metadataFilter: data.metadataFilter,
         });
-        records = providerResult.records;
+        records = await overlayCatalogRecordState(companyId, binding.id, providerResult.records);
         preamble = providerResult.preamble ?? null;
         usage = providerResult.usage ?? [];
         providerResultJson = providerResult.resultJson ?? null;
@@ -1189,6 +1418,7 @@ export function memoryService(
           !record.deletedAt
           && !record.revokedAt
           && record.retentionState === "active"
+          && record.reviewState === "accepted"
           && !record.supersededByRecordId
           && (!record.expiresAt || record.expiresAt > new Date())
           && SENSITIVITY_RANK[record.sensitivityLabel] <= SENSITIVITY_RANK[maxSensitivityLabel],
@@ -1253,6 +1483,7 @@ export function memoryService(
             content: data.content,
             summary: data.summary ?? null,
             metadata: data.metadata ?? {},
+            reviewState: data.reviewState,
           },
           operationId,
         );
@@ -1298,12 +1529,14 @@ export function memoryService(
           scopeId: data.scopeId ?? data.scope?.scopeId ?? null,
           owner: data.owner ?? null,
           sensitivityLabel: data.sensitivityLabel,
+          reviewState: data.reviewState,
           expiresAt: data.expiresAt ? new Date(data.expiresAt).toISOString() : null,
           metadata: data.metadata ?? {},
         },
         policyDecision: {
           captureAllowed: true,
           sensitivityLabel: data.sensitivityLabel,
+          reviewState: data.reviewState,
         },
         resultJson: {
           recordIds: records.map((record) => record.id),
@@ -1524,6 +1757,11 @@ export function memoryService(
           retentionPolicy: parsed.retentionPolicy === undefined ? originalRow.retentionPolicy : parsed.retentionPolicy,
           expiresAt: parsed.expiresAt === undefined ? originalRow.expiresAt : parsed.expiresAt,
           retentionState: "active",
+          reviewState: "accepted",
+          reviewedAt: correctedAt,
+          reviewedByActorType: principal.type,
+          reviewedByActorId: principal.id,
+          reviewNote: parsed.reason,
           citationJson: parsed.citation === undefined ? originalRow.citationJson : normalizeCitation(parsed.citation),
           supersedesRecordId: originalRow.id,
           createdByOperationId: operationId,
@@ -1563,6 +1801,62 @@ export function memoryService(
         originalRecord: mapRecord({ ...originalRow, supersededByRecordId: correctedRecordId, updatedAt: correctedAt }),
         correctedRecord: mapRecord(correctedRow),
       } satisfies MemoryCorrectResult;
+    },
+
+    review: async (
+      companyId: string,
+      recordId: string,
+      data: MemoryReview,
+      actor: ActorInfo,
+    ): Promise<MemoryReviewResult> => {
+      const parsed = memoryReviewSchema.parse(data);
+      const row = await db
+        .select()
+        .from(memoryLocalRecords)
+        .where(and(eq(memoryLocalRecords.companyId, companyId), eq(memoryLocalRecords.id, recordId)))
+        .then((rows) => rows[0] ?? null);
+      if (!row) throw notFound("Memory record not found");
+      if (row.deletedAt || row.revokedAt || row.retentionState === "revoked") {
+        throw conflict("Revoked memory records cannot be reviewed");
+      }
+
+      const binding = await getBindingOrThrow(row.bindingId);
+      const reviewedAt = new Date();
+      const principal = actorPrincipal(actor);
+      const [updatedRow] = await db
+        .update(memoryLocalRecords)
+        .set({
+          reviewState: parsed.reviewState,
+          reviewedAt,
+          reviewedByActorType: principal.type,
+          reviewedByActorId: principal.id,
+          reviewNote: parsed.note ?? null,
+          updatedAt: reviewedAt,
+        })
+        .where(and(eq(memoryLocalRecords.companyId, companyId), eq(memoryLocalRecords.id, recordId)))
+        .returning();
+
+      const operation = await logOperation({
+        companyId,
+        binding,
+        actor,
+        operationType: "review",
+        triggerKind: "manual",
+        scope: scopeFromRow(row),
+        source: sourceFromRow(row),
+        requestJson: {
+          recordId,
+          reviewState: parsed.reviewState,
+          note: parsed.note ?? null,
+        },
+        resultJson: {
+          recordId,
+          reviewState: parsed.reviewState,
+        },
+        recordCount: 1,
+      });
+
+      return { operation, record: mapRecord(updatedRow) } satisfies MemoryReviewResult;
     },
 
     sweepRetention: async (
@@ -1801,6 +2095,7 @@ export function memoryService(
           title: input.title ?? "Run summary",
           content: input.summary,
           summary: input.summary,
+          reviewState: "accepted",
         },
         {
           actorType: "agent",
@@ -1862,6 +2157,7 @@ export function memoryService(
           title: "Issue comment",
           content: input.body,
           summary: input.body.replace(/\s+/g, " ").slice(0, 240),
+          reviewState: "accepted",
         },
         input.actor,
         "hook",
@@ -1915,6 +2211,7 @@ export function memoryService(
           title: input.title ?? `Issue document: ${input.key}`,
           content: input.body,
           summary: input.body.replace(/\s+/g, " ").slice(0, 240),
+          reviewState: "accepted",
         },
         input.actor,
         "hook",

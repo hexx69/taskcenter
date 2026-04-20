@@ -407,6 +407,13 @@
       "when": 1776377673907,
       "tag": "0057_misty_riptide",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1776647797670,
+      "tag": "0058_lovely_eternals",
+      "breakpoints": true
     }
   ]
 }

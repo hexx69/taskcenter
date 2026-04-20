@@ -1,5 +1,6 @@
 import type { PaperclipPluginManifestV1 } from "@paperclipai/plugin-sdk";
 import { QMD_MEMORY_PROVIDER_KEY, QMD_PLUGIN_ID } from "./constants.js";
+import { buildQmdMemoryConfigMetadata } from "./lib/provider.js";
 
 const manifest: PaperclipPluginManifestV1 = {
   id: QMD_PLUGIN_ID,
@@ -30,25 +31,34 @@ const manifest: PaperclipPluginManifestV1 = {
         properties: {
           searchMode: {
             type: "string",
+            title: "Search mode",
+            description: "qmd command used for retrieval.",
             enum: ["query", "search", "vsearch"],
             default: "query",
           },
           topK: {
             type: "integer",
+            title: "Result limit",
+            description: "Maximum qmd hits requested before Paperclip policy filtering.",
             minimum: 1,
             maximum: 25,
             default: 5,
           },
           autoIndexOnWrite: {
             type: "boolean",
+            title: "Auto-index on write",
+            description: "Refresh the qmd index after captures and forgets.",
             default: true,
           },
           qmdBinaryPath: {
             type: ["string", "null"],
+            title: "qmd binary path",
+            description: "Optional absolute path to qmd. Leave empty to use qmd from PATH.",
             default: null,
           },
         },
       },
+      configMetadata: buildQmdMemoryConfigMetadata(),
     },
   ],
 };

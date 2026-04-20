@@ -2,8 +2,8 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { MemoryBinding } from "@paperclipai/plugin-sdk";
-import { createQmdMemoryProvider } from "../src/lib/provider.js";
+import type { MemoryBinding, MemoryProviderConfigFieldMetadata } from "@paperclipai/plugin-sdk";
+import { buildQmdMemoryConfigMetadata, checkQmdMemoryHealth, createQmdMemoryProvider } from "../src/lib/provider.js";
 import { resolveRecordPath } from "../src/lib/storage.js";
 
 const fixedNow = new Date("2026-04-13T14:00:00.000Z");
@@ -179,5 +179,60 @@ describe("createQmdMemoryProvider", () => {
     await expect(readFile(resolveRecordPath(dataDir, binding, "record-z"), "utf8")).rejects.toMatchObject({
       code: "ENOENT",
     });
+  });
+});
+
+describe("QMD memory provider config metadata", () => {
+  const tempDirs: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(tempDirs.map(async (dir) => {
+      await import("node:fs/promises").then((fs) => fs.rm(dir, { recursive: true, force: true }));
+    }));
+    tempDirs.length = 0;
+  });
+
+  it("suggests a storage root and field-level config metadata", () => {
+    const metadata = buildQmdMemoryConfigMetadata("/tmp/paperclip-qmd");
+
+    expect(metadata.pathSuggestions?.[0]).toMatchObject({
+      key: "dataDir",
+      path: "/tmp/paperclip-qmd",
+    });
+    expect(metadata.suggestedConfig).toMatchObject({
+      searchMode: "query",
+      topK: 5,
+      autoIndexOnWrite: true,
+      qmdBinaryPath: null,
+    });
+    expect(metadata.fields.map((field: MemoryProviderConfigFieldMetadata) => field.key)).toEqual([
+      "searchMode",
+      "topK",
+      "autoIndexOnWrite",
+      "qmdBinaryPath",
+    ]);
+  });
+
+  it("reports storage and qmd binary health details", async () => {
+    const dataDir = await mkdtemp(path.join(os.tmpdir(), "paperclip-qmd-memory-health-"));
+    tempDirs.push(dataDir);
+    const health = await checkQmdMemoryHealth({
+      dataDir,
+      qmdClient: {
+        refreshIndex: vi.fn(),
+        query: vi.fn(),
+        checkHealth: vi.fn().mockResolvedValue({
+          available: false,
+          binaryPath: "qmd",
+          message: "qmd binary not found: qmd",
+        }),
+      },
+    });
+
+    expect(health.dataDir).toBe(dataDir);
+    expect(health.checks).toEqual([
+      expect.objectContaining({ key: "dataDir", status: "ok" }),
+      expect.objectContaining({ key: "qmdBinary", status: "warning" }),
+    ]);
   });
 });

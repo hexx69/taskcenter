@@ -12,7 +12,7 @@ import {
   PLUGIN_LAUNCHER_RENDER_ENVIRONMENTS,
   PLUGIN_STATE_SCOPE_KINDS,
 } from "../constants.js";
-import { memoryProviderCapabilitiesSchema } from "./memory.js";
+import { memoryProviderCapabilitiesSchema, memoryProviderConfigMetadataSchema } from "./memory.js";
 
 // ---------------------------------------------------------------------------
 // JSON Schema placeholder – a permissive validator for JSON Schema objects
@@ -112,6 +112,7 @@ export const pluginMemoryProviderDeclarationSchema = z.object({
   description: z.string().optional(),
   capabilities: memoryProviderCapabilitiesSchema.partial().optional(),
   configSchema: jsonSchemaSchema.optional(),
+  configMetadata: memoryProviderConfigMetadataSchema.optional(),
 });
 
 export type PluginMemoryProviderDeclarationInput = z.infer<typeof pluginMemoryProviderDeclarationSchema>;

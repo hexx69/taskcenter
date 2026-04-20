@@ -16,6 +16,7 @@ import { useToast } from "../context/ToastContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { queryKeys } from "../lib/queryKeys";
 import { ProjectProperties, type ProjectConfigFieldKey, type ProjectFieldSaveState } from "../components/ProjectProperties";
+import { ProjectMemorySettings } from "../components/ProjectMemorySettings";
 import { CopyText } from "../components/CopyText";
 import { InlineEditor } from "../components/InlineEditor";
 import { StatusBadge } from "../components/StatusBadge";
@@ -36,7 +37,7 @@ import { IssuesQuicklook } from "../components/IssuesQuicklook";
 
 /* ── Top-level tab types ── */
 
-type ProjectBaseTab = "overview" | "list" | "workspaces" | "configuration" | "budget";
+type ProjectBaseTab = "overview" | "list" | "workspaces" | "configuration" | "memory" | "budget";
 type ProjectPluginTab = `plugin:${string}`;
 type ProjectTab = ProjectBaseTab | ProjectPluginTab;
 
@@ -51,6 +52,7 @@ function resolveProjectTab(pathname: string, projectId: string): ProjectTab | nu
   const tab = segments[projectsIdx + 2];
   if (tab === "overview") return "overview";
   if (tab === "configuration") return "configuration";
+  if (tab === "memory") return "memory";
   if (tab === "budget") return "budget";
   if (tab === "issues") return "list";
   if (tab === "workspaces") return "workspaces";
@@ -627,6 +629,10 @@ export function ProjectDetail() {
       navigate(`/projects/${canonicalProjectRef}/budget`, { replace: true });
       return;
     }
+    if (activeTab === "memory") {
+      navigate(`/projects/${canonicalProjectRef}/memory`, { replace: true });
+      return;
+    }
     if (activeTab === "workspaces") {
       navigate(`/projects/${canonicalProjectRef}/workspaces`, { replace: true });
       return;
@@ -760,6 +766,9 @@ export function ProjectDetail() {
     if (cachedTab === "budget") {
       return <Navigate to={`/projects/${canonicalProjectRef}/budget`} replace />;
     }
+    if (cachedTab === "memory") {
+      return <Navigate to={`/projects/${canonicalProjectRef}/memory`} replace />;
+    }
     if (cachedTab === "workspaces" && workspaceTabDecisionLoaded && showWorkspacesTab) {
       return <Navigate to={`/projects/${canonicalProjectRef}/workspaces`} replace />;
     }
@@ -791,6 +800,8 @@ export function ProjectDetail() {
       navigate(`/projects/${canonicalProjectRef}/workspaces`);
     } else if (tab === "budget") {
       navigate(`/projects/${canonicalProjectRef}/budget`);
+    } else if (tab === "memory") {
+      navigate(`/projects/${canonicalProjectRef}/memory`);
     } else if (tab === "configuration") {
       navigate(`/projects/${canonicalProjectRef}/configuration`);
     } else {
@@ -861,6 +872,7 @@ export function ProjectDetail() {
             { value: "overview", label: "Overview" },
             ...(showWorkspacesTab ? [{ value: "workspaces", label: "Workspaces" }] : []),
             { value: "configuration", label: "Configuration" },
+            { value: "memory", label: "Memory" },
             { value: "budget", label: "Budget" },
             ...pluginTabItems.map((item) => ({
               value: item.value,
@@ -917,6 +929,10 @@ export function ProjectDetail() {
           />
         </div>
       )}
+
+      {activeTab === "memory" && resolvedCompanyId ? (
+        <ProjectMemorySettings companyId={resolvedCompanyId} projectId={project.id} />
+      ) : null}
 
       {activeTab === "budget" && resolvedCompanyId ? (
         <div className="max-w-3xl">

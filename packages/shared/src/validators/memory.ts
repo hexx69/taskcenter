@@ -6,6 +6,7 @@ import {
   MEMORY_OPERATION_TYPES,
   MEMORY_PRINCIPAL_TYPES,
   MEMORY_RETENTION_STATES,
+  MEMORY_REVIEW_STATES,
   MEMORY_SCOPE_TYPES,
   MEMORY_SENSITIVITY_LABELS,
   MEMORY_SOURCE_KINDS,
@@ -73,6 +74,59 @@ export const memoryProviderCapabilitiesSchema = z
   })
   .strict();
 
+export const memoryProviderConfigFieldOptionSchema = z
+  .object({
+    value: z.union([z.string(), z.number(), z.boolean(), z.null()]),
+    label: z.string().trim().min(1).max(120),
+    description: z.string().trim().max(500).nullable().optional(),
+  })
+  .strict();
+
+export const memoryProviderConfigFieldMetadataSchema = z
+  .object({
+    key: z.string().trim().min(1).max(128),
+    label: z.string().trim().min(1).max(120),
+    description: z.string().trim().max(1000).nullable().optional(),
+    input: z.enum(["text", "number", "boolean", "select", "path", "secret"]),
+    required: z.boolean().optional(),
+    secret: z.boolean().optional(),
+    defaultValue: z.unknown().optional(),
+    suggestedValue: z.unknown().optional(),
+    placeholder: z.string().trim().max(500).nullable().optional(),
+    min: z.number().nullable().optional(),
+    max: z.number().nullable().optional(),
+    options: z.array(memoryProviderConfigFieldOptionSchema).max(50).optional(),
+  })
+  .strict();
+
+export const memoryProviderHealthCheckSchema = z
+  .object({
+    key: z.string().trim().min(1).max(128),
+    label: z.string().trim().min(1).max(120),
+    status: z.enum(["ok", "warning", "error", "unknown"]),
+    message: z.string().trim().max(1000).nullable().optional(),
+    details: z.record(z.unknown()).nullable().optional(),
+  })
+  .strict();
+
+export const memoryProviderConfigPathSuggestionSchema = z
+  .object({
+    key: z.string().trim().min(1).max(128),
+    label: z.string().trim().min(1).max(120),
+    path: z.string().trim().min(1).max(2000),
+    description: z.string().trim().max(1000).nullable().optional(),
+  })
+  .strict();
+
+export const memoryProviderConfigMetadataSchema = z
+  .object({
+    fields: z.array(memoryProviderConfigFieldMetadataSchema).max(100),
+    suggestedConfig: z.record(z.unknown()),
+    pathSuggestions: z.array(memoryProviderConfigPathSuggestionSchema).max(20).optional(),
+    healthChecks: z.array(memoryProviderHealthCheckSchema).max(50).optional(),
+  })
+  .strict();
+
 export const createMemoryBindingSchema = z
   .object({
     key: z.string().trim().min(1).max(64).regex(/^[a-z0-9][a-z0-9_-]*$/, "Binding key must be lowercase letters, numbers, _ or -"),
@@ -99,6 +153,12 @@ export const setCompanyMemoryBindingSchema = z
   .strict();
 
 export const setAgentMemoryBindingSchema = z
+  .object({
+    bindingId: z.string().uuid().nullable(),
+  })
+  .strict();
+
+export const setProjectMemoryBindingSchema = z
   .object({
     bindingId: z.string().uuid().nullable(),
   })
@@ -131,6 +191,7 @@ export const memoryCaptureSchema = z
     content: z.string().trim().min(1).max(20000),
     summary: z.string().trim().max(2000).nullable().optional(),
     metadata: z.record(z.unknown()).optional(),
+    reviewState: z.enum(MEMORY_REVIEW_STATES).optional().default("pending"),
   })
   .strict();
 
@@ -176,6 +237,13 @@ export const memoryCorrectSchema = z
   })
   .strict();
 
+export const memoryReviewSchema = z
+  .object({
+    reviewState: z.enum(MEMORY_REVIEW_STATES),
+    note: z.string().trim().max(1000).nullable().optional(),
+  })
+  .strict();
+
 export const memoryRetentionSweepSchema = z
   .object({
     now: z.coerce.date().optional(),
@@ -187,12 +255,14 @@ export const memoryRetentionSweepSchema = z
 export const memoryListRecordsQuerySchema = z
   .object({
     bindingId: z.string().uuid().optional(),
+    providerKey: z.string().trim().min(1).max(128).optional(),
     scopeType: z.enum(MEMORY_SCOPE_TYPES).optional(),
     scopeId: z.string().trim().min(1).max(200).optional(),
     ownerType: z.enum(MEMORY_PRINCIPAL_TYPES).optional(),
     ownerId: z.string().trim().min(1).max(200).optional(),
     sensitivityLabel: z.enum(MEMORY_SENSITIVITY_LABELS).optional(),
     retentionState: z.enum(MEMORY_RETENTION_STATES).optional(),
+    reviewState: z.enum(MEMORY_REVIEW_STATES).optional(),
     expiresBefore: z.coerce.date().optional(),
     agentId: z.string().uuid().optional(),
     workspaceId: z.string().trim().min(1).max(200).optional(),
@@ -201,6 +271,7 @@ export const memoryListRecordsQuerySchema = z
     teamId: z.string().trim().min(1).max(200).optional(),
     runId: z.string().uuid().optional(),
     sourceKind: z.enum(MEMORY_SOURCE_KINDS).optional(),
+    q: z.string().trim().min(1).max(500).optional(),
     includeDeleted: z.coerce.boolean().optional().default(false),
     includeRevoked: z.coerce.boolean().optional().default(false),
     includeExpired: z.coerce.boolean().optional().default(false),
@@ -240,11 +311,13 @@ export type CreateMemoryBinding = z.infer<typeof createMemoryBindingSchema>;
 export type UpdateMemoryBinding = z.infer<typeof updateMemoryBindingSchema>;
 export type SetCompanyMemoryBinding = z.infer<typeof setCompanyMemoryBindingSchema>;
 export type SetAgentMemoryBinding = z.infer<typeof setAgentMemoryBindingSchema>;
+export type SetProjectMemoryBinding = z.infer<typeof setProjectMemoryBindingSchema>;
 export type MemoryQuery = z.infer<typeof memoryQuerySchema>;
 export type MemoryCapture = z.infer<typeof memoryCaptureSchema>;
 export type MemoryForget = z.infer<typeof memoryForgetSchema>;
 export type MemoryRevoke = z.infer<typeof memoryRevokeSchema>;
 export type MemoryCorrect = z.infer<typeof memoryCorrectSchema>;
+export type MemoryReview = z.infer<typeof memoryReviewSchema>;
 export type MemoryRetentionSweep = z.infer<typeof memoryRetentionSweepSchema>;
 export type MemoryListRecordsQuery = z.infer<typeof memoryListRecordsQuerySchema>;
 export type MemoryListOperationsQuery = z.infer<typeof memoryListOperationsQuerySchema>;

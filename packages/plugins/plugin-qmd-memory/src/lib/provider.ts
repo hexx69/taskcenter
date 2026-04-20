@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
+import { constants as fsConstants } from "node:fs";
+import { access, mkdir } from "node:fs/promises";
 import path from "node:path";
 import type {
   MemoryBinding,
+  MemoryProviderConfigMetadata,
+  MemoryProviderHealthCheck,
   MemoryProviderCaptureInput,
   MemoryProviderForgetInput,
   MemoryProviderQueryInput,
@@ -33,6 +37,39 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 
 function normalizeNullableString(value: unknown) {
   return typeof value === "string" ? value : null;
+}
+
+function normalizeScopeType(scope: MemoryScope, fallback: MemoryRecord["scopeType"] = "org"): MemoryRecord["scopeType"] {
+  if (scope.scopeType) return scope.scopeType;
+  if (scope.runId) return "run";
+  if (scope.agentId) return "agent";
+  if (scope.workspaceId) return "workspace";
+  if (scope.projectId) return "project";
+  if (scope.teamId) return "team";
+  return fallback;
+}
+
+function normalizeScopeId(companyId: string, scopeType: MemoryRecord["scopeType"], scope: MemoryScope) {
+  if (scope.scopeId) return scope.scopeId;
+  switch (scopeType) {
+    case "run":
+      return scope.runId ?? null;
+    case "agent":
+      return scope.agentId ?? null;
+    case "workspace":
+      return scope.workspaceId ?? null;
+    case "project":
+      return scope.projectId ?? null;
+    case "team":
+      return scope.teamId ?? null;
+    case "org":
+      return companyId;
+  }
+}
+
+function normalizeDate(value: string | Date | null | undefined) {
+  if (!value) return null;
+  return value instanceof Date ? value : new Date(value);
 }
 
 function clampInt(value: unknown, fallback: number, min: number, max: number) {
@@ -81,6 +118,8 @@ function buildRecord(
   recordId: string,
   now: Date,
 ): MemoryRecord {
+  const scopeType = input.scopeType ?? input.scope.scopeType ?? normalizeScopeType(input.scope);
+  const scopeId = input.scopeId ?? input.scope.scopeId ?? normalizeScopeId(input.binding.companyId, scopeType, input.scope);
   return {
     id: recordId,
     companyId: input.binding.companyId,
@@ -88,6 +127,24 @@ function buildRecord(
     providerKey: input.binding.providerKey,
     scope: input.scope,
     source: input.source,
+    scopeType,
+    scopeId,
+    owner: input.owner ?? input.createdBy ?? null,
+    createdBy: input.createdBy ?? null,
+    sensitivityLabel: input.sensitivityLabel ?? "internal",
+    retentionPolicy: input.retentionPolicy ?? null,
+    expiresAt: normalizeDate(input.expiresAt),
+    retentionState: "active",
+    reviewState: "pending",
+    reviewedAt: null,
+    reviewedBy: null,
+    reviewNote: null,
+    citation: input.citation ?? null,
+    supersedesRecordId: null,
+    supersededByRecordId: null,
+    revokedAt: null,
+    revokedBy: null,
+    revocationReason: null,
     title: input.title ?? null,
     content: input.content,
     summary: input.summary ?? null,
@@ -105,6 +162,136 @@ function buildFallbackDataDir() {
 
 export function resolveQmdMemoryDataDir(dataDir?: string) {
   return dataDir ?? process.env[QMD_PLUGIN_DATA_DIR_ENV] ?? buildFallbackDataDir();
+}
+
+export function buildQmdMemoryConfigMetadata(dataDir = resolveQmdMemoryDataDir()): MemoryProviderConfigMetadata {
+  return {
+    suggestedConfig: {
+      searchMode: "query",
+      topK: 5,
+      autoIndexOnWrite: true,
+      qmdBinaryPath: null,
+    },
+    pathSuggestions: [
+      {
+        key: "dataDir",
+        label: "QMD storage root",
+        path: dataDir,
+        description: "Default plugin data directory used for markdown memory records and qmd indexes.",
+      },
+    ],
+    healthChecks: [
+      {
+        key: "dataDir",
+        label: "Storage directory",
+        status: "unknown",
+        message: "Checked by the QMD plugin health endpoint.",
+      },
+      {
+        key: "qmdBinary",
+        label: "qmd binary",
+        status: "unknown",
+        message: "Checked by the QMD plugin health endpoint.",
+      },
+    ],
+    fields: [
+      {
+        key: "searchMode",
+        label: "Search mode",
+        description: "qmd command used for retrieval.",
+        input: "select",
+        defaultValue: "query",
+        suggestedValue: "query",
+        options: [
+          { value: "query", label: "Query" },
+          { value: "search", label: "Search" },
+          { value: "vsearch", label: "Vector search" },
+        ],
+      },
+      {
+        key: "topK",
+        label: "Result limit",
+        description: "Maximum qmd hits requested before Paperclip policy filtering.",
+        input: "number",
+        defaultValue: 5,
+        suggestedValue: 5,
+        min: 1,
+        max: 25,
+      },
+      {
+        key: "autoIndexOnWrite",
+        label: "Auto-index on write",
+        description: "Refresh the qmd index after captures and forgets.",
+        input: "boolean",
+        defaultValue: true,
+        suggestedValue: true,
+      },
+      {
+        key: "qmdBinaryPath",
+        label: "qmd binary path",
+        description: "Optional absolute path to qmd. Leave empty to use qmd from PATH.",
+        input: "path",
+        defaultValue: null,
+        suggestedValue: null,
+        placeholder: "qmd",
+      },
+    ],
+  };
+}
+
+export async function checkQmdMemoryHealth(options: {
+  dataDir?: string;
+  qmdClient?: QmdClient;
+  qmdBinaryPath?: string | null;
+} = {}) {
+  const dataDir = resolveQmdMemoryDataDir(options.dataDir);
+  const qmdClient = options.qmdClient ?? createQmdClient();
+  const checks: MemoryProviderHealthCheck[] = [];
+
+  try {
+    await mkdir(dataDir, { recursive: true });
+    await access(dataDir, fsConstants.W_OK);
+    checks.push({
+      key: "dataDir",
+      label: "Storage directory",
+      status: "ok",
+      message: "QMD memory storage directory is writable.",
+      details: { dataDir },
+    });
+  } catch (error) {
+    checks.push({
+      key: "dataDir",
+      label: "Storage directory",
+      status: "error",
+      message: error instanceof Error ? error.message : "QMD memory storage directory is not accessible.",
+      details: { dataDir },
+    });
+  }
+
+  if (qmdClient.checkHealth) {
+    const binary = await qmdClient.checkHealth({ binaryPath: options.qmdBinaryPath });
+    checks.push({
+      key: "qmdBinary",
+      label: "qmd binary",
+      status: binary.available ? "ok" : "warning",
+      message: binary.message,
+      details: {
+        binaryPath: binary.binaryPath,
+      },
+    });
+  } else {
+    checks.push({
+      key: "qmdBinary",
+      label: "qmd binary",
+      status: "unknown",
+      message: "qmd binary health check is unavailable for this client.",
+    });
+  }
+
+  return {
+    dataDir,
+    checks,
+  };
 }
 
 async function maybeRefreshIndex(

@@ -7,6 +7,7 @@ import type {
   MemoryPrincipalType,
   MemoryProviderKind,
   MemoryRetentionState,
+  MemoryReviewState,
   MemoryScopeType,
   MemorySensitivityLabel,
   MemorySourceKind,
@@ -20,6 +21,59 @@ export interface MemoryProviderCapabilities {
   providerManagedExtraction: boolean;
 }
 
+export type MemoryProviderConfigFieldInput =
+  | "text"
+  | "number"
+  | "boolean"
+  | "select"
+  | "path"
+  | "secret";
+
+export interface MemoryProviderConfigFieldOption {
+  value: string | number | boolean | null;
+  label: string;
+  description?: string | null;
+}
+
+export interface MemoryProviderConfigFieldMetadata {
+  key: string;
+  label: string;
+  description?: string | null;
+  input: MemoryProviderConfigFieldInput;
+  required?: boolean;
+  secret?: boolean;
+  defaultValue?: unknown;
+  suggestedValue?: unknown;
+  placeholder?: string | null;
+  min?: number | null;
+  max?: number | null;
+  options?: MemoryProviderConfigFieldOption[];
+}
+
+export type MemoryProviderHealthStatus = "ok" | "warning" | "error" | "unknown";
+
+export interface MemoryProviderHealthCheck {
+  key: string;
+  label: string;
+  status: MemoryProviderHealthStatus;
+  message?: string | null;
+  details?: Record<string, unknown> | null;
+}
+
+export interface MemoryProviderConfigPathSuggestion {
+  key: string;
+  label: string;
+  path: string;
+  description?: string | null;
+}
+
+export interface MemoryProviderConfigMetadata {
+  fields: MemoryProviderConfigFieldMetadata[];
+  suggestedConfig: Record<string, unknown>;
+  pathSuggestions?: MemoryProviderConfigPathSuggestion[];
+  healthChecks?: MemoryProviderHealthCheck[];
+}
+
 export interface MemoryProviderDescriptor {
   key: string;
   displayName: string;
@@ -28,6 +82,7 @@ export interface MemoryProviderDescriptor {
   pluginId: string | null;
   capabilities: MemoryProviderCapabilities;
   configSchema: Record<string, unknown> | null;
+  configMetadata: MemoryProviderConfigMetadata | null;
 }
 
 export interface MemoryUsage {
@@ -111,6 +166,13 @@ export interface MemoryResolvedBinding {
   targetType: MemoryBindingTargetType | null;
   targetId: string | null;
   binding: MemoryBinding | null;
+  source:
+    | "binding_key"
+    | "agent_override"
+    | "project_override"
+    | "company_default"
+    | "unconfigured";
+  checkedTargetTypes: MemoryBindingTargetType[];
 }
 
 export interface MemoryRecordHandle {
@@ -133,6 +195,10 @@ export interface MemoryRecord {
   retentionPolicy: Record<string, unknown> | null;
   expiresAt: Date | null;
   retentionState: MemoryRetentionState;
+  reviewState: MemoryReviewState;
+  reviewedAt: Date | null;
+  reviewedBy: MemoryPrincipalRef | null;
+  reviewNote: string | null;
   citation: MemoryCitation | null;
   supersedesRecordId: string | null;
   supersededByRecordId: string | null;
@@ -286,6 +352,16 @@ export interface MemoryCorrectResult {
   operation: MemoryOperation;
   originalRecord: MemoryRecord;
   correctedRecord: MemoryRecord;
+}
+
+export interface MemoryReview {
+  reviewState: MemoryReviewState;
+  note?: string | null;
+}
+
+export interface MemoryReviewResult {
+  operation: MemoryOperation;
+  record: MemoryRecord;
 }
 
 export interface MemoryRetentionSweepResult {

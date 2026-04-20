@@ -10,9 +10,11 @@ import { MEMORY_RETENTION_STATES, MEMORY_SCOPE_TYPES, MEMORY_SENSITIVITY_LABELS 
 import { memoryApi } from "../api/memory";
 import { useToast } from "../context/ToastContext";
 import { queryKeys } from "../lib/queryKeys";
+import { getSuggestedMemoryConfig, prettyMemoryConfig, validateMemoryProviderConfig } from "../lib/memory-config-schema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { MemoryProviderConfigForm } from "./MemoryProviderConfigForm";
 
 const DEFAULT_LOCAL_BASIC_CONFIG = {
   enablePreRunHydrate: true,
@@ -21,23 +23,6 @@ const DEFAULT_LOCAL_BASIC_CONFIG = {
   enableIssueDocumentCapture: true,
   maxHydrateSnippets: 5,
 };
-
-function prettyJson(value: Record<string, unknown>) {
-  return JSON.stringify(value, null, 2);
-}
-
-function parseConfigText(configText: string) {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(configText);
-  } catch (error) {
-    throw new Error(error instanceof Error ? error.message : "Config must be valid JSON");
-  }
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new Error("Config must be a JSON object");
-  }
-  return parsed as Record<string, unknown>;
-}
 
 function describeBindingConfig(binding: MemoryBinding) {
   if (binding.providerKey !== "local_basic") {
@@ -89,24 +74,25 @@ function MemoryBindingCard({
   const queryClient = useQueryClient();
   const [name, setName] = useState(binding.name ?? "");
   const [enabled, setEnabled] = useState(binding.enabled);
-  const [configText, setConfigText] = useState(prettyJson(binding.config ?? {}));
-  const [configError, setConfigError] = useState<string | null>(null);
+  const [config, setConfig] = useState<Record<string, unknown>>(binding.config ?? {});
+  const [configValid, setConfigValid] = useState(true);
 
   useEffect(() => {
     setName(binding.name ?? "");
     setEnabled(binding.enabled);
-    setConfigText(prettyJson(binding.config ?? {}));
-    setConfigError(null);
+    setConfig(binding.config ?? {});
+    setConfigValid(true);
   }, [binding]);
 
   const dirty =
     name !== (binding.name ?? "")
     || enabled !== binding.enabled
-    || configText !== prettyJson(binding.config ?? {});
+    || prettyMemoryConfig(config) !== prettyMemoryConfig(binding.config ?? {});
 
   const updateBinding = useMutation({
     mutationFn: async () => {
-      const config = parseConfigText(configText);
+      const validation = validateMemoryProviderConfig(provider, config);
+      if (!validation.valid) throw new Error("Provider config has invalid fields");
       return memoryApi.updateBinding(binding.id, {
         name: name.trim() || null,
         enabled,
@@ -114,7 +100,6 @@ function MemoryBindingCard({
       });
     },
     onSuccess: async () => {
-      setConfigError(null);
       await queryClient.invalidateQueries({ queryKey: queryKeys.memory.all });
       pushToast({
         title: "Memory binding updated",
@@ -159,7 +144,7 @@ function MemoryBindingCard({
           <div className="text-xs text-muted-foreground">{providerDescription(provider)}</div>
           <div className="text-xs text-muted-foreground">{describeBindingConfig(binding)}</div>
           <div className="text-xs text-muted-foreground">
-            {overrideCount > 0 ? `${overrideCount} agent override${overrideCount === 1 ? "" : "s"}` : "No agent overrides"}
+            {overrideCount > 0 ? `${overrideCount} override${overrideCount === 1 ? "" : "s"}` : "No project or agent overrides"}
           </div>
         </div>
         <Button
@@ -191,37 +176,26 @@ function MemoryBindingCard({
             Enabled
           </label>
         </div>
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-muted-foreground">Provider config JSON</label>
-          <Textarea
-            value={configText}
-            onChange={(event) => {
-              setConfigText(event.target.value);
-              setConfigError(null);
-            }}
-            className="min-h-44 font-mono text-xs"
+        <div className="space-y-2">
+          <div className="text-xs font-medium text-muted-foreground">Provider config</div>
+          <MemoryProviderConfigForm
+            provider={provider}
+            value={config}
+            onChange={setConfig}
+            onValidationChange={setConfigValid}
           />
-          {configError && <p className="text-xs text-destructive">{configError}</p>}
-          {updateBinding.isError && !configError && (
+          {updateBinding.isError ? (
             <p className="text-xs text-destructive">
               {updateBinding.error instanceof Error ? updateBinding.error.message : "Failed to update binding"}
             </p>
-          )}
+          ) : null}
         </div>
         <div className="flex items-center justify-end gap-2">
           <Button
             size="sm"
             variant="outline"
-            disabled={!dirty || updateBinding.isPending}
-            onClick={() => {
-              try {
-                parseConfigText(configText);
-                setConfigError(null);
-                updateBinding.mutate();
-              } catch (error) {
-                setConfigError(error instanceof Error ? error.message : "Config must be valid JSON");
-              }
-            }}
+            disabled={!dirty || !configValid || updateBinding.isPending}
+            onClick={() => updateBinding.mutate()}
           >
             {updateBinding.isPending ? "Saving..." : "Save binding"}
           </Button>
@@ -237,7 +211,8 @@ export function CompanyMemorySettings({ companyId }: { companyId: string }) {
   const [key, setKey] = useState("default-memory");
   const [name, setName] = useState("Default memory");
   const [providerKey, setProviderKey] = useState("local_basic");
-  const [configText, setConfigText] = useState(prettyJson(DEFAULT_LOCAL_BASIC_CONFIG));
+  const [config, setConfig] = useState<Record<string, unknown>>(DEFAULT_LOCAL_BASIC_CONFIG);
+  const [configValid, setConfigValid] = useState(true);
   const [enabled, setEnabled] = useState(true);
   const [makeDefault, setMakeDefault] = useState(true);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -286,6 +261,7 @@ export function CompanyMemorySettings({ companyId }: { companyId: string }) {
     () => new Map((providersQuery.data ?? []).map((provider) => [provider.key, provider])),
     [providersQuery.data],
   );
+  const selectedProvider = providersByKey.get(providerKey);
 
   const defaultBindingId =
     targetsQuery.data?.find((target) => target.targetType === "company" && target.targetId === companyId)?.bindingId ?? null;
@@ -293,7 +269,7 @@ export function CompanyMemorySettings({ companyId }: { companyId: string }) {
   const overrideCountByBindingId = useMemo(() => {
     const result = new Map<string, number>();
     for (const target of targetsQuery.data ?? []) {
-      if (target.targetType !== "agent") continue;
+      if (target.targetType !== "agent" && target.targetType !== "project") continue;
       result.set(target.bindingId, (result.get(target.bindingId) ?? 0) + 1);
     }
     return result;
@@ -302,12 +278,16 @@ export function CompanyMemorySettings({ companyId }: { companyId: string }) {
   useEffect(() => {
     if (!providersQuery.data?.length) return;
     if (providersQuery.data.some((provider) => provider.key === providerKey)) return;
-    setProviderKey(providersQuery.data[0]!.key);
+    const nextProvider = providersQuery.data[0]!;
+    setProviderKey(nextProvider.key);
+    setConfig(getSuggestedMemoryConfig(nextProvider));
+    setConfigValid(true);
   }, [providerKey, providersQuery.data]);
 
   const createBinding = useMutation({
     mutationFn: async () => {
-      const config = parseConfigText(configText);
+      const validation = validateMemoryProviderConfig(selectedProvider, config);
+      if (!validation.valid) throw new Error("Provider config has invalid fields");
       const created = await memoryApi.createBinding(companyId, {
         key: key.trim(),
         name: name.trim() || null,
@@ -324,7 +304,8 @@ export function CompanyMemorySettings({ companyId }: { companyId: string }) {
       setCreateError(null);
       setKey("default-memory");
       setName("Default memory");
-      setConfigText(prettyJson(DEFAULT_LOCAL_BASIC_CONFIG));
+      setConfig(getSuggestedMemoryConfig(providersByKey.get("local_basic")) ?? DEFAULT_LOCAL_BASIC_CONFIG);
+      setConfigValid(true);
       setEnabled(true);
       setMakeDefault(true);
       await queryClient.invalidateQueries({ queryKey: queryKeys.memory.all });
@@ -467,7 +448,14 @@ export function CompanyMemorySettings({ companyId }: { companyId: string }) {
                   <label className="text-xs font-medium text-muted-foreground">Provider</label>
                   <select
                     value={providerKey}
-                    onChange={(event) => setProviderKey(event.target.value)}
+                    onChange={(event) => {
+                      const nextKey = event.target.value;
+                      const nextProvider = providersByKey.get(nextKey);
+                      setProviderKey(nextKey);
+                      setConfig(getSuggestedMemoryConfig(nextProvider));
+                      setConfigValid(true);
+                      setCreateError(null);
+                    }}
                     className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none"
                   >
                     {(providersQuery.data ?? []).map((provider) => (
@@ -494,30 +482,26 @@ export function CompanyMemorySettings({ companyId }: { companyId: string }) {
                   Set as company default
                 </label>
               </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">Config JSON</label>
-                <Textarea
-                  value={configText}
-                  onChange={(event) => {
-                    setConfigText(event.target.value);
+              <div className="space-y-2">
+                <div className="text-xs font-medium text-muted-foreground">Provider config</div>
+                <MemoryProviderConfigForm
+                  provider={selectedProvider}
+                  value={config}
+                  onChange={(nextConfig) => {
+                    setConfig(nextConfig);
                     setCreateError(null);
                   }}
-                  className="min-h-44 font-mono text-xs"
+                  onValidationChange={setConfigValid}
                 />
                 {createError && <p className="text-xs text-destructive">{createError}</p>}
               </div>
               <div className="flex items-center justify-end gap-2">
                 <Button
                   size="sm"
-                  disabled={!key.trim() || !providerKey || createBinding.isPending}
+                  disabled={!key.trim() || !providerKey || !configValid || createBinding.isPending}
                   onClick={() => {
-                    try {
-                      parseConfigText(configText);
-                      setCreateError(null);
-                      createBinding.mutate();
-                    } catch (error) {
-                      setCreateError(error instanceof Error ? error.message : "Config must be valid JSON");
-                    }
+                    setCreateError(null);
+                    createBinding.mutate();
                   }}
                 >
                   {createBinding.isPending ? "Creating..." : "Create binding"}

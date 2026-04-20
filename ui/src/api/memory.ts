@@ -11,11 +11,14 @@ import type {
   MemoryRecord,
   MemoryRetentionSweep,
   MemoryRetentionSweepResult,
+  MemoryReview,
+  MemoryReviewResult,
   MemoryRevoke,
   MemoryRevokeResult,
   MemoryResolvedBinding,
   SetAgentMemoryBinding,
   SetCompanyMemoryBinding,
+  SetProjectMemoryBinding,
   UpdateMemoryBinding,
 } from "@paperclipai/shared";
 import { api } from "./client";
@@ -47,6 +50,10 @@ export const memoryApi = {
     api.get<MemoryResolvedBinding>(`/agents/${encodeURIComponent(agentId)}/memory-binding`),
   setAgentBinding: (agentId: string, bindingId: SetAgentMemoryBinding["bindingId"]) =>
     api.put<MemoryBindingTarget | null>(`/agents/${encodeURIComponent(agentId)}/memory-binding`, { bindingId }),
+  getProjectBinding: (projectId: string) =>
+    api.get<MemoryResolvedBinding>(`/projects/${encodeURIComponent(projectId)}/memory-binding`),
+  setProjectBinding: (projectId: string, bindingId: SetProjectMemoryBinding["bindingId"]) =>
+    api.put<MemoryBindingTarget | null>(`/projects/${encodeURIComponent(projectId)}/memory-binding`, { bindingId }),
   listRecords: (companyId: string, filters?: Partial<MemoryListRecordsQuery>) =>
     api.get<MemoryRecord[]>(
       `/companies/${encodeURIComponent(companyId)}/memory/records${buildQueryString(filters)}`,
@@ -60,6 +67,11 @@ export const memoryApi = {
   correctRecord: (companyId: string, recordId: string, data: MemoryCorrect) =>
     api.post<MemoryCorrectResult>(
       `/companies/${encodeURIComponent(companyId)}/memory/records/${encodeURIComponent(recordId)}/correct`,
+      data,
+    ),
+  reviewRecord: (companyId: string, recordId: string, data: MemoryReview) =>
+    api.patch<MemoryReviewResult>(
+      `/companies/${encodeURIComponent(companyId)}/memory/records/${encodeURIComponent(recordId)}/review`,
       data,
     ),
   sweepRetention: (companyId: string, data: Partial<MemoryRetentionSweep> = {}) =>

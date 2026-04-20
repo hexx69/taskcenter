@@ -25,12 +25,90 @@ function parseDate(value: unknown) {
 function normalizeScope(value: unknown): MemoryScope {
   if (!isPlainRecord(value)) return {};
   return {
+    scopeType: asString(value.scopeType) as MemoryScope["scopeType"],
+    scopeId: asString(value.scopeId),
     agentId: asString(value.agentId),
+    workspaceId: asString(value.workspaceId),
     projectId: asString(value.projectId),
     issueId: asString(value.issueId),
     runId: asString(value.runId),
+    teamId: asString(value.teamId),
     subjectId: asString(value.subjectId),
+    allowedScopes: Array.isArray(value.allowedScopes)
+      ? value.allowedScopes
+        .filter(isPlainRecord)
+        .map((scope) => ({
+          type: asString(scope.type) as MemoryRecord["scopeType"],
+          id: asString(scope.id),
+        }))
+        .filter((scope) => Boolean(scope.type))
+      : null,
+    maxSensitivityLabel: asString(value.maxSensitivityLabel) as MemoryScope["maxSensitivityLabel"],
   };
+}
+
+function normalizeScopeType(scope: MemoryScope, value: unknown): MemoryRecord["scopeType"] {
+  const raw = asString(value);
+  if (raw === "run" || raw === "agent" || raw === "workspace" || raw === "project" || raw === "team" || raw === "org") {
+    return raw;
+  }
+  if (scope.scopeType) return scope.scopeType;
+  if (scope.runId) return "run";
+  if (scope.agentId) return "agent";
+  if (scope.workspaceId) return "workspace";
+  if (scope.projectId) return "project";
+  if (scope.teamId) return "team";
+  return "org";
+}
+
+function normalizeScopeId(companyId: string, scopeType: MemoryRecord["scopeType"], scope: MemoryScope, value: unknown) {
+  const raw = asString(value);
+  if (raw) return raw;
+  if (scope.scopeId) return scope.scopeId;
+  switch (scopeType) {
+    case "run":
+      return scope.runId ?? null;
+    case "agent":
+      return scope.agentId ?? null;
+    case "workspace":
+      return scope.workspaceId ?? null;
+    case "project":
+      return scope.projectId ?? null;
+    case "team":
+      return scope.teamId ?? null;
+    case "org":
+      return companyId;
+  }
+}
+
+function normalizePrincipal(value: unknown): MemoryRecord["owner"] {
+  if (!isPlainRecord(value)) return null;
+  const type = asString(value.type);
+  const id = asString(value.id);
+  if (!type || !id) return null;
+  return { type: type as NonNullable<MemoryRecord["owner"]>["type"], id };
+}
+
+function normalizeSensitivityLabel(value: unknown): MemoryRecord["sensitivityLabel"] {
+  const raw = asString(value);
+  if (raw === "public" || raw === "internal" || raw === "confidential" || raw === "restricted") return raw;
+  return "internal";
+}
+
+function normalizeRetentionState(value: unknown): MemoryRecord["retentionState"] {
+  const raw = asString(value);
+  if (raw === "active" || raw === "expired" || raw === "revoked") return raw;
+  return "active";
+}
+
+function normalizeReviewState(value: unknown): MemoryRecord["reviewState"] {
+  const raw = asString(value);
+  if (raw === "pending" || raw === "accepted" || raw === "rejected") return raw;
+  return "pending";
+}
+
+function normalizeCitation(value: unknown): MemoryRecord["citation"] {
+  return isPlainRecord(value) ? (value as MemoryRecord["citation"]) : null;
 }
 
 function normalizeSource(value: unknown): MemorySourceRef | null {
@@ -98,6 +176,24 @@ export async function writeStoredRecord(dataDir: string, binding: MemoryBinding,
     providerKey: input.record.providerKey,
     scope: input.record.scope,
     source: input.record.source,
+    scopeType: input.record.scopeType,
+    scopeId: input.record.scopeId,
+    owner: input.record.owner,
+    createdBy: input.record.createdBy,
+    sensitivityLabel: input.record.sensitivityLabel,
+    retentionPolicy: input.record.retentionPolicy,
+    expiresAt: input.record.expiresAt?.toISOString() ?? null,
+    retentionState: input.record.retentionState,
+    reviewState: input.record.reviewState,
+    reviewedAt: input.record.reviewedAt?.toISOString() ?? null,
+    reviewedBy: input.record.reviewedBy,
+    reviewNote: input.record.reviewNote,
+    citation: input.record.citation,
+    supersedesRecordId: input.record.supersedesRecordId,
+    supersededByRecordId: input.record.supersededByRecordId,
+    revokedAt: input.record.revokedAt?.toISOString() ?? null,
+    revokedBy: input.record.revokedBy,
+    revocationReason: input.record.revocationReason,
     title: input.record.title,
     summary: input.record.summary,
     metadata: input.record.metadata,
@@ -125,14 +221,35 @@ export async function readStoredRecord(filePath: string): Promise<MemoryRecord |
   if (!id || !companyId || !bindingId || !providerKey || !createdAt || !updatedAt) {
     return null;
   }
+  const scope = normalizeScope(frontmatter.scope);
+  const scopeType = normalizeScopeType(scope, frontmatter.scopeType);
+  const scopeId = normalizeScopeId(companyId, scopeType, scope, frontmatter.scopeId);
 
   return {
     id,
     companyId,
     bindingId,
     providerKey,
-    scope: normalizeScope(frontmatter.scope),
+    scope,
     source: normalizeSource(frontmatter.source),
+    scopeType,
+    scopeId,
+    owner: normalizePrincipal(frontmatter.owner),
+    createdBy: normalizePrincipal(frontmatter.createdBy),
+    sensitivityLabel: normalizeSensitivityLabel(frontmatter.sensitivityLabel),
+    retentionPolicy: isPlainRecord(frontmatter.retentionPolicy) ? frontmatter.retentionPolicy : null,
+    expiresAt: parseDate(frontmatter.expiresAt),
+    retentionState: normalizeRetentionState(frontmatter.retentionState),
+    reviewState: normalizeReviewState(frontmatter.reviewState),
+    reviewedAt: parseDate(frontmatter.reviewedAt),
+    reviewedBy: normalizePrincipal(frontmatter.reviewedBy),
+    reviewNote: asString(frontmatter.reviewNote),
+    citation: normalizeCitation(frontmatter.citation),
+    supersedesRecordId: asString(frontmatter.supersedesRecordId),
+    supersededByRecordId: asString(frontmatter.supersededByRecordId),
+    revokedAt: parseDate(frontmatter.revokedAt),
+    revokedBy: normalizePrincipal(frontmatter.revokedBy),
+    revocationReason: asString(frontmatter.revocationReason),
     title: asString(frontmatter.title),
     content: parsed.body,
     summary: asString(frontmatter.summary),

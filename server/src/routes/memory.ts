@@ -9,15 +9,17 @@ import {
   memoryListRecordsQuerySchema,
   memoryQuerySchema,
   memoryRetentionSweepSchema,
+  memoryReviewSchema,
   memoryRevokeSchema,
   setAgentMemoryBindingSchema,
   setCompanyMemoryBindingSchema,
+  setProjectMemoryBindingSchema,
   updateMemoryBindingSchema,
   createMemoryBindingSchema,
 } from "@paperclipai/shared";
 import { validate } from "../middleware/validate.js";
 import { forbidden, notFound } from "../errors.js";
-import { agentService, logActivity, memoryService } from "../services/index.js";
+import { agentService, logActivity, memoryService, projectService } from "../services/index.js";
 import { assertBoard, assertCompanyAccess, getActorInfo } from "./authz.js";
 
 function actorInfoFromReq(req: any) {
@@ -51,6 +53,7 @@ export function memoryRoutes(
     pluginMemoryProviders: opts?.pluginMemoryProviders,
   });
   const agentsSvc = agentService(db);
+  const projectsSvc = projectService(db);
 
   router.get("/companies/:companyId/memory/providers", async (req, res) => {
     const companyId = req.params.companyId as string;
@@ -165,6 +168,37 @@ export function memoryRoutes(
       action: target ? "memory.agent_override_set" : "memory.agent_override_cleared",
       entityType: "agent",
       entityId: agent.id,
+      details: {
+        bindingId: target?.bindingId ?? null,
+      },
+    });
+    res.json(target);
+  });
+
+  router.get("/projects/:projectId/memory-binding", async (req, res) => {
+    const projectId = req.params.projectId as string;
+    const project = await projectsSvc.getById(projectId);
+    if (!project) throw notFound("Project not found");
+    assertCompanyAccess(req, project.companyId);
+    res.json(await memory.resolveBinding(project.companyId, { projectId: project.id }));
+  });
+
+  router.put("/projects/:projectId/memory-binding", validate(setProjectMemoryBindingSchema), async (req, res) => {
+    const projectId = req.params.projectId as string;
+    const project = await projectsSvc.getById(projectId);
+    if (!project) throw notFound("Project not found");
+    assertCompanyAccess(req, project.companyId);
+    assertBoard(req);
+    const target = await memory.setProjectOverride(project.id, req.body.bindingId);
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId: project.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      action: target ? "memory.project_override_set" : "memory.project_override_cleared",
+      entityType: "project",
+      entityId: project.id,
       details: {
         bindingId: target?.bindingId ?? null,
       },
@@ -288,6 +322,28 @@ export function memoryRoutes(
       },
     });
     res.status(201).json(result);
+  });
+
+  router.patch("/companies/:companyId/memory/records/:recordId/review", validate(memoryReviewSchema), async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    assertBoard(req);
+    const result = await memory.review(companyId, req.params.recordId as string, req.body, actorInfoFromReq(req));
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      action: "memory.reviewed",
+      entityType: "memory_record",
+      entityId: result.record.id,
+      details: {
+        recordId: result.record.id,
+        reviewState: result.record.reviewState,
+      },
+    });
+    res.json(result);
   });
 
   router.post("/companies/:companyId/memory/retention/sweep", validate(memoryRetentionSweepSchema), async (req, res) => {

@@ -86,6 +86,7 @@ export function createPluginMemoryProviderDispatcher(
               providerManagedExtraction: provider.capabilities?.providerManagedExtraction ?? false,
             },
             configSchema: provider.configSchema ?? null,
+            configMetadata: provider.configMetadata ?? null,
           },
         });
       }

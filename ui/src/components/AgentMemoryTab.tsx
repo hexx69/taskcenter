@@ -7,9 +7,11 @@ import { queryKeys } from "../lib/queryKeys";
 import { formatCents, relativeTime } from "../lib/utils";
 import { Button } from "@/components/ui/button";
 
-function describeResolvedScope(targetType: "company" | "agent" | null) {
-  if (targetType === "agent") return "Agent override";
-  if (targetType === "company") return "Company default";
+function describeResolvedSource(source: string | null | undefined) {
+  if (source === "agent_override") return "Agent override";
+  if (source === "project_override") return "Project override";
+  if (source === "company_default") return "Company default";
+  if (source === "binding_key") return "Direct binding key";
   return "Unconfigured";
 }
 
@@ -134,7 +136,7 @@ export function AgentMemoryTab({
               <>
                 <div className="text-sm">{describeBinding(resolvedBindingQuery.data?.binding ?? null)}</div>
                 <div className="text-xs text-muted-foreground">
-                  Source: {describeResolvedScope(resolvedBindingQuery.data?.targetType ?? null)}
+                  Source: {describeResolvedSource(resolvedBindingQuery.data?.source ?? null)}
                 </div>
                 <div className="text-xs text-muted-foreground">
                   Automatic capture hooks write recent run summaries and issue context into the resolved binding.
@@ -154,7 +156,7 @@ export function AgentMemoryTab({
               disabled={loading || Boolean(error)}
               className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none"
             >
-              <option value="__inherit__">Inherit company default</option>
+              <option value="__inherit__">Inherit project/company default</option>
               {(bindingsQuery.data ?? []).map((binding) => (
                 <option key={binding.id} value={binding.id}>
                   {binding.name ?? binding.key}
