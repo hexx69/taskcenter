@@ -1037,15 +1037,8 @@ export function AgentDetail() {
       )}
 
       {/* Floating Save/Cancel (desktop) */}
-      {!isMobile && (
-        <div
-          className={cn(
-            "sticky top-6 z-10 float-right transition-opacity duration-150",
-            showConfigActionBar
-              ? "opacity-100"
-              : "opacity-0 pointer-events-none"
-          )}
-        >
+      {!isMobile && showConfigActionBar && (
+        <div className="fixed bottom-6 right-6 z-30">
           <div className="flex items-center gap-2 bg-background/90 backdrop-blur-sm border border-border rounded-lg px-3 py-1.5 shadow-lg">
             <Button
               variant="ghost"
@@ -1707,6 +1700,7 @@ function PromptsTab({
   const [pendingFiles, setPendingFiles] = useState<string[]>([]);
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
   const [filePanelWidth, setFilePanelWidth] = useState(260);
+  const [instructionPaneWidth, setInstructionPaneWidth] = useState<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [awaitingRefresh, setAwaitingRefresh] = useState(false);
   const lastFileVersionRef = useRef<string | null>(null);
@@ -1855,6 +1849,26 @@ function PromptsTab({
   }, [visibleFilePaths]);
 
   useEffect(() => {
+    if (isMobile) {
+      setInstructionPaneWidth(null);
+      return;
+    }
+    const element = containerRef.current;
+    if (!element) return;
+
+    const updateWidth = () => setInstructionPaneWidth(element.getBoundingClientRect().width);
+    updateWidth();
+
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) setInstructionPaneWidth(entry.contentRect.width);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [bundleLoading, isMobile, visibleFilePaths.length]);
+
+  useEffect(() => {
     const versionKey = selectedFileExists && selectedFileDetail
       ? `${selectedFileDetail.path}:${selectedFileDetail.content}`
       : `draft:${currentMode}:${currentRootPath}:${selectedOrEntryFile}`;
@@ -1978,6 +1992,9 @@ function PromptsTab({
     document.body.style.userSelect = "none";
   }, [filePanelWidth]);
 
+  const instructionsSideBySide =
+    !isMobile && instructionPaneWidth !== null && instructionPaneWidth >= filePanelWidth + 520;
+
   if (!isLocal) {
     return (
       <div className="max-w-3xl">
@@ -2011,8 +2028,8 @@ function PromptsTab({
         </CollapsibleTrigger>
         <CollapsibleContent className="pt-4 pb-6">
           <TooltipProvider>
-            <div className="grid gap-x-6 gap-y-4 sm:grid-cols-[auto_1fr_1fr]">
-              <label className="space-y-1.5">
+            <div className="grid gap-x-6 gap-y-4 md:grid-cols-[auto_minmax(0,1fr)_minmax(12rem,0.65fr)]">
+              <label className="space-y-1.5 min-w-0">
                 <span className="text-xs font-medium text-muted-foreground flex items-center gap-1">
                   Mode
                   <Tooltip>
@@ -2157,12 +2174,20 @@ function PromptsTab({
         </CollapsibleContent>
       </Collapsible>
 
-      <div ref={containerRef} className={cn("flex gap-0", isMobile && "flex-col gap-3")}>
+      <div
+        ref={containerRef}
+        className="grid min-w-0 gap-3"
+        style={
+          instructionsSideBySide
+            ? { gridTemplateColumns: `${filePanelWidth}px 0.5rem minmax(0, 1fr)` }
+            : undefined
+        }
+      >
         <div className={cn(
-          "border border-border rounded-lg p-3 space-y-3 shrink-0",
+          "min-w-0 w-full border border-border rounded-lg p-3 space-y-3",
           isMobile && showFilePanel && "block",
           isMobile && !showFilePanel && "hidden",
-        )} style={isMobile ? undefined : { width: filePanelWidth }}>
+        )}>
           <div className="flex items-center justify-between">
             <h4 className="text-sm font-medium">Files</h4>
             <div className="flex items-center gap-1">
@@ -2257,6 +2282,7 @@ function PromptsTab({
             }}
             onToggleCheck={() => {}}
             showCheckboxes={false}
+            wrapLabels
             renderFileExtra={(node) => {
               const file = bundle?.files.find((entry) => entry.path === node.path);
               if (!file) return null;
@@ -2284,14 +2310,14 @@ function PromptsTab({
         </div>
 
         {/* Draggable separator */}
-        {!isMobile && (
+        {instructionsSideBySide && (
           <div
-            className="w-1 shrink-0 cursor-col-resize hover:bg-border active:bg-primary/50 rounded transition-colors mx-1"
+            className="w-1 cursor-col-resize rounded transition-colors hover:bg-border active:bg-primary/50"
             onMouseDown={handleSeparatorDrag}
           />
         )}
 
-        <div className={cn("border border-border rounded-lg p-4 space-y-3 min-w-0 flex-1", isMobile && showFilePanel && "hidden")}>
+        <div className={cn("min-w-0 w-full overflow-hidden border border-border rounded-lg p-4 space-y-3", isMobile && showFilePanel && "hidden")}>
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 min-w-0">
               {isMobile && (
@@ -2346,7 +2372,8 @@ function PromptsTab({
               value={displayValue}
               onChange={(value) => setDraft(value ?? "")}
               placeholder="# Agent instructions"
-              contentClassName="min-h-[420px] text-sm font-mono"
+              className="min-w-0 overflow-hidden"
+              contentClassName="min-h-[420px] max-w-full break-words text-sm font-mono"
               imageUploadHandler={async (file) => {
                 const namespace = `agents/${agent.id}/instructions/${selectedOrEntryFile.replaceAll("/", "-")}`;
                 const asset = await uploadMarkdownImage.mutateAsync({ file, namespace });
@@ -2357,7 +2384,7 @@ function PromptsTab({
             <textarea
               value={displayValue}
               onChange={(event) => setDraft(event.target.value)}
-              className="min-h-[420px] w-full rounded-md border border-border bg-transparent px-3 py-2 font-mono text-sm outline-none"
+              className="min-h-[420px] w-full min-w-0 rounded-md border border-border bg-transparent px-3 py-2 font-mono text-sm outline-none"
               placeholder="File contents"
             />
           )}
