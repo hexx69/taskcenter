@@ -7,6 +7,7 @@ import {
   agentRuntimeState,
   agentWakeupRequests,
   companies,
+  companySkills,
   createDb,
   heartbeatRuns,
   issueComments,
@@ -56,6 +57,7 @@ vi.mock("../adapters/index.ts", async () => {
 });
 
 import { heartbeatService } from "../services/heartbeat.ts";
+import { runningProcesses } from "../adapters/index.ts";
 
 const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
 const describeEmbeddedPostgres = embeddedPostgresSupport.supported ? describe : describe.skip;
@@ -76,16 +78,33 @@ describeEmbeddedPostgres("heartbeat issue graph liveness escalation", () => {
   }, 30_000);
 
   afterEach(async () => {
+    vi.clearAllMocks();
+    runningProcesses.clear();
+    let idlePolls = 0;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const runs = await db
+        .select({ status: heartbeatRuns.status })
+        .from(heartbeatRuns);
+      const hasActiveRun = runs.some((run) => run.status === "queued" || run.status === "running");
+      if (!hasActiveRun) {
+        idlePolls += 1;
+        if (idlePolls >= 3) break;
+      } else {
+        idlePolls = 0;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
     await db.delete(activityLog);
     await db.delete(agentRuntimeState);
     await db.delete(issueComments);
     await db.delete(issueRelations);
-    await db.delete(issues);
     await db.delete(heartbeatRuns);
     await db.delete(agentWakeupRequests);
+    await db.delete(issues);
+    await db.delete(companySkills);
     await db.delete(agents);
     await db.delete(companies);
-    mockAdapterExecute.mockClear();
   });
 
   afterAll(async () => {
