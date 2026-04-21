@@ -47,6 +47,7 @@ interface SandboxedParser {
   hasFactory: boolean;
   nextId: number;
   pendingResolves: Map<number, (entries: TranscriptEntry[]) => void>;
+  pendingParserCreates: Map<number, (parserId: number | null) => void>;
 }
 
 // ── State ───────────────────────────────────────────────────────────────────
@@ -85,6 +86,18 @@ function parseLineAsync(sandbox: SandboxedParser, line: string, ts: string): Pro
   });
 }
 
+function drainPendingRequests(sandbox: SandboxedParser): void {
+  for (const resolver of sandbox.pendingResolves.values()) {
+    resolver([]);
+  }
+  sandbox.pendingResolves.clear();
+
+  for (const resolver of sandbox.pendingParserCreates.values()) {
+    resolver(null);
+  }
+  sandbox.pendingParserCreates.clear();
+}
+
 /**
  * Create a sandboxed worker, send the parser source, and wait for init.
  */
@@ -97,10 +110,12 @@ function initSandboxedWorker(source: string): Promise<SandboxedParser> {
       hasFactory: false,
       nextId: 1,
       pendingResolves: new Map(),
+      pendingParserCreates: new Map(),
     };
 
     // Timeout if the worker doesn't respond within 5s
     const timeout = setTimeout(() => {
+      drainPendingRequests(sandbox);
       worker.terminate();
       reject(new Error("Parser worker init timed out"));
     }, 5000);
@@ -123,12 +138,14 @@ function initSandboxedWorker(source: string): Promise<SandboxedParser> {
               resolver(resp.entries as TranscriptEntry[]);
             }
           } else if (resp.type === "parser_created") {
-            const resolver = sandbox.pendingResolves.get(resp.id);
+            const resolver = sandbox.pendingParserCreates.get(resp.id);
             if (resolver) {
-              sandbox.pendingResolves.delete(resp.id);
-              // Encode parserId in a single-element array for the promise chain
-              resolver([{ kind: "system", ts: "", text: String(resp.parserId) }] as unknown as TranscriptEntry[]);
+              sandbox.pendingParserCreates.delete(resp.id);
+              resolver(resp.parserId);
             }
+          } else if (resp.type === "error") {
+            console.error("[adapter-ui-loader] Worker reported error:", resp.message);
+            drainPendingRequests(sandbox);
           }
         };
 
@@ -138,6 +155,7 @@ function initSandboxedWorker(source: string): Promise<SandboxedParser> {
 
       if (msg.type === "error") {
         clearTimeout(timeout);
+        drainPendingRequests(sandbox);
         worker.terminate();
         reject(new Error(msg.message));
         return;
@@ -146,6 +164,7 @@ function initSandboxedWorker(source: string): Promise<SandboxedParser> {
 
     worker.onerror = (ev) => {
       clearTimeout(timeout);
+      drainPendingRequests(sandbox);
       worker.terminate();
       reject(new Error(`Worker error: ${ev.message}`));
     };
@@ -200,10 +219,9 @@ function buildParserModule(sandbox: SandboxedParser): DynamicParserModule {
 
       // Request a parser instance from the worker.
       const id = nextRequestId(sandbox);
-      sandbox.pendingResolves.set(id, (entries) => {
-        // The parserId is encoded in the first entry's text field.
-        if (entries.length > 0 && (entries[0] as TranscriptEntry & { kind: string }).kind === "system") {
-          parserId = parseInt((entries[0] as TranscriptEntry & { text: string }).text, 10);
+      sandbox.pendingParserCreates.set(id, (createdParserId) => {
+        if (createdParserId !== null) {
+          parserId = createdParserId;
           parserReady = true;
         }
       });
@@ -303,6 +321,7 @@ export function invalidateDynamicParser(adapterType: string): boolean {
   // Terminate the worker to free resources.
   const sandbox = sandboxedParsers.get(adapterType);
   if (sandbox) {
+    drainPendingRequests(sandbox);
     sandbox.worker.terminate();
     sandboxedParsers.delete(adapterType);
   }

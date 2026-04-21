@@ -17,7 +17,6 @@
 export type SandboxRequest =
   | { type: "init"; source: string }
   | { type: "parse"; id: number; line: string; ts: string }
-  | { type: "parse_batch"; id: number; lines: { line: string; ts: string }[] }
   | { type: "create_parser"; id: number }
   | { type: "parser_parse"; id: number; parserId: number; line: string; ts: string }
   | { type: "parser_reset"; parserId: number };
@@ -63,6 +62,13 @@ self.caches = _undefined;
 
 // Import / eval escape hatches
 self.importScripts = _undefined;
+self.Worker = _undefined;
+self.SharedWorker = _undefined;
+self.Blob = _undefined;
+if (self.URL) {
+  try { Object.defineProperty(self.URL, "createObjectURL", { value: _undefined, writable: false, configurable: false }); } catch {}
+  try { Object.defineProperty(self.URL, "revokeObjectURL", { value: _undefined, writable: false, configurable: false }); } catch {}
+}
 
 // Beacon / reporting
 if (self.navigator) {
@@ -71,7 +77,6 @@ if (self.navigator) {
 
 // Service worker / broadcast channel
 self.BroadcastChannel = _undefined;
-self.SharedWorker = _undefined;
 
 // IndexedDB (prevents persistent state exfiltration)
 self.indexedDB = _undefined;
@@ -139,20 +144,6 @@ self.onmessage = function (e) {
     try {
       const entries = parseStdoutLine ? parseStdoutLine(msg.line, msg.ts) : [];
       self.postMessage({ type: "result", id: msg.id, entries: entries || [] });
-    } catch (err) {
-      self.postMessage({ type: "result", id: msg.id, entries: [] });
-    }
-    return;
-  }
-
-  if (msg.type === "parse_batch") {
-    try {
-      const allEntries = [];
-      for (const item of msg.lines) {
-        const entries = parseStdoutLine ? parseStdoutLine(item.line, item.ts) : [];
-        allEntries.push(...(entries || []));
-      }
-      self.postMessage({ type: "result", id: msg.id, entries: allEntries });
     } catch (err) {
       self.postMessage({ type: "result", id: msg.id, entries: [] });
     }
