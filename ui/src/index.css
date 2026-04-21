@@ -482,15 +482,6 @@ a.paperclip-mention-chip[data-mention-kind="agent"]::before {
   mask-size: contain;
 }
 
-.paperclip-mdxeditor-content a.paperclip-mention-chip[data-mention-kind="issue"]::before,
-a.paperclip-mention-chip[data-mention-kind="issue"]::before {
-  width: 0.45rem;
-  height: 0.45rem;
-  border-radius: 0.14rem;
-  background-color: currentColor;
-  opacity: 0.75;
-}
-
 .paperclip-mdxeditor-content ul,
 .paperclip-mdxeditor-content ol {
   margin: 1.1em 0;

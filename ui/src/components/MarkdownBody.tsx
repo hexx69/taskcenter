@@ -44,7 +44,7 @@ function MarkdownIssueLink({
   return (
     <Link
       to={href}
-      className="paperclip-mention-chip paperclip-mention-chip--issue inline-flex items-center gap-1.5 align-baseline"
+      className="inline-flex items-center gap-1 align-baseline font-medium"
       data-mention-kind="issue"
     >
       {data ? <StatusIcon status={data.status} className="h-3.5 w-3.5" /> : null}

@@ -297,6 +297,29 @@ export function IssueProperties({
     return runningRuntimeServiceWithUrl(issue.currentExecutionWorkspace?.runtimeServices);
   }, [issue, issueProject]);
   const referencedIssueIdentifiers = issue.referencedIssueIdentifiers ?? [];
+  const relatedTasks = useMemo(() => {
+    const excluded = new Set<string>();
+    const addExcluded = (candidate: { id: string; identifier?: string | null }) => {
+      excluded.add(candidate.id);
+      if (candidate.identifier) excluded.add(candidate.identifier);
+    };
+
+    for (const blocker of issue.blockedBy ?? []) addExcluded(blocker);
+    for (const blocked of issue.blocks ?? []) addExcluded(blocked);
+    for (const child of childIssues) addExcluded(child);
+
+    const referencedIssues = issue.relatedWork?.outbound.map((item) => item.issue) ?? [];
+    if (referencedIssues.length > 0) {
+      return referencedIssues.filter((referenced) => {
+        const label = referenced.identifier ?? referenced.id;
+        return !excluded.has(referenced.id) && !excluded.has(label);
+      });
+    }
+
+    return referencedIssueIdentifiers
+      .filter((identifier) => !excluded.has(identifier))
+      .map((identifier) => ({ id: identifier, identifier, title: identifier }));
+  }, [childIssues, issue.blockedBy, issue.blocks, issue.relatedWork?.outbound, referencedIssueIdentifiers]);
   const projectLink = (id: string | null) => {
     if (!id) return null;
     const project = projects?.find((p) => p.id === id) ?? null;
@@ -1095,21 +1118,6 @@ export function IssueProperties({
           ) : null}
         </PropertyRow>
 
-        <PropertyRow label="Task ids">
-          {referencedIssueIdentifiers.length > 0 ? (
-            <div className="flex flex-wrap gap-1">
-              {referencedIssueIdentifiers.map((identifier) => (
-                <IssueReferencePill
-                  key={identifier}
-                  issue={{ id: identifier, identifier, title: identifier }}
-                />
-              ))}
-            </div>
-          ) : (
-            <span className="text-sm text-muted-foreground">None</span>
-          )}
-        </PropertyRow>
-
         <PropertyRow label="Sub-issues">
           <div className="flex flex-wrap items-center gap-1.5">
             {childIssues.length > 0
@@ -1130,11 +1138,21 @@ export function IssueProperties({
                 onClick={onAddSubIssue}
               >
                 <Plus className="h-3 w-3" />
-                Add sub-issue
+              Add sub-issue
               </button>
             ) : null}
           </div>
         </PropertyRow>
+
+        {relatedTasks.length > 0 ? (
+          <PropertyRow label="Related Tasks">
+            <div className="flex flex-wrap gap-1">
+              {relatedTasks.map((related) => (
+                <IssueReferencePill key={related.id} issue={related} />
+              ))}
+            </div>
+          </PropertyRow>
+        ) : null}
 
         <PropertyPicker
           inline={inline}

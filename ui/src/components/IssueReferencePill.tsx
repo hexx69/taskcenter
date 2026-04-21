@@ -29,11 +29,7 @@ export function IssueReferencePill({
       title={issue.title}
       aria-label={`Issue ${issueLabel}: ${issue.title}`}
     >
-      {issue.status ? (
-        <StatusIcon status={issue.status} className="h-3 w-3 shrink-0" />
-      ) : (
-        <span className="h-1.5 w-1.5 rounded-[0.14rem] bg-current opacity-70" />
-      )}
+      {issue.status ? <StatusIcon status={issue.status} className="h-3 w-3 shrink-0" /> : null}
       <span>{issue.identifier ?? issue.title}</span>
     </Link>
   );

@@ -416,19 +416,122 @@ describe("IssueProperties", () => {
     act(() => root.unmount());
   });
 
-  it("shows referenced task ids when the issue points at other tasks", async () => {
+  it("shows related task references below sub-issues", async () => {
     const root = renderProperties(container, {
       issue: createIssue({
-        referencedIssueIdentifiers: ["PAP-22", "PAP-44"],
+        relatedWork: {
+          outbound: [
+            {
+              issue: {
+                id: "issue-22",
+                identifier: "PAP-22",
+                title: "Related task",
+                status: "todo",
+                priority: "medium",
+                assigneeAgentId: null,
+                assigneeUserId: null,
+              },
+              mentionCount: 1,
+              sources: [{ kind: "description", sourceRecordId: null, label: "description", matchedText: "PAP-22" }],
+            },
+          ],
+          inbound: [],
+        },
       }),
       childIssues: [],
       onUpdate: vi.fn(),
     });
     await flush();
 
-    expect(container.textContent).toContain("Task ids");
+    expect(container.textContent).not.toContain("Task ids");
+    expect(container.textContent).toContain("Related Tasks");
     expect(container.textContent).toContain("PAP-22");
-    expect(container.textContent).toContain("PAP-44");
+
+    act(() => root.unmount());
+  });
+
+  it("hides related task references already covered by blockers, blocking, and sub-issues", async () => {
+    const root = renderProperties(container, {
+      issue: createIssue({
+        blockedBy: [
+          {
+            id: "issue-22",
+            identifier: "PAP-22",
+            title: "Blocker",
+            status: "todo",
+            priority: "medium",
+            assigneeAgentId: null,
+            assigneeUserId: null,
+          },
+        ],
+        blocks: [
+          {
+            id: "issue-33",
+            identifier: "PAP-33",
+            title: "Blocked issue",
+            status: "todo",
+            priority: "medium",
+            assigneeAgentId: null,
+            assigneeUserId: null,
+          },
+        ],
+        relatedWork: {
+          outbound: [
+            {
+              issue: {
+                id: "issue-22",
+                identifier: "PAP-22",
+                title: "Blocker",
+                status: "todo",
+                priority: "medium",
+                assigneeAgentId: null,
+                assigneeUserId: null,
+              },
+              mentionCount: 1,
+              sources: [{ kind: "description", sourceRecordId: null, label: "description", matchedText: "PAP-22" }],
+            },
+            {
+              issue: {
+                id: "issue-33",
+                identifier: "PAP-33",
+                title: "Blocked issue",
+                status: "todo",
+                priority: "medium",
+                assigneeAgentId: null,
+                assigneeUserId: null,
+              },
+              mentionCount: 1,
+              sources: [{ kind: "description", sourceRecordId: null, label: "description", matchedText: "PAP-33" }],
+            },
+            {
+              issue: {
+                id: "child-44",
+                identifier: "PAP-44",
+                title: "Child issue",
+                status: "todo",
+                priority: "medium",
+                assigneeAgentId: null,
+                assigneeUserId: null,
+              },
+              mentionCount: 1,
+              sources: [{ kind: "description", sourceRecordId: null, label: "description", matchedText: "PAP-44" }],
+            },
+          ],
+          inbound: [],
+        },
+      }),
+      childIssues: [
+        createIssue({
+          id: "child-44",
+          identifier: "PAP-44",
+          title: "Child issue",
+        }),
+      ],
+      onUpdate: vi.fn(),
+    });
+    await flush();
+
+    expect(container.textContent).not.toContain("Related Tasks");
 
     act(() => root.unmount());
   });
