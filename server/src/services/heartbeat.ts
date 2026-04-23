@@ -124,6 +124,10 @@ const MAX_RUN_EVENT_PAYLOAD_OBJECT_KEYS = 100;
 const MAX_RUN_EVENT_PAYLOAD_DEPTH = 6;
 const HEARTBEAT_MAX_CONCURRENT_RUNS_DEFAULT = AGENT_DEFAULT_MAX_CONCURRENT_RUNS;
 const HEARTBEAT_MAX_CONCURRENT_RUNS_MAX = 10;
+const LIVENESS_BOOKKEEPING_ACTIVITY_ACTIONS = [
+  "environment.lease_acquired",
+  "environment.lease_released",
+];
 const DEFERRED_WAKE_CONTEXT_KEY = "_paperclipWakeContext";
 const WAKE_COMMENT_IDS_KEY = "wakeCommentIds";
 const PAPERCLIP_WAKE_PAYLOAD_KEY = "paperclipWake";
@@ -3000,6 +3004,25 @@ export function heartbeatService(db: Db) {
     return retryRun;
   }
 
+  async function hasDeferredIssueCommentWake(companyId: string, issueId: string) {
+    const deferredPayloads = await db
+      .select({ payload: agentWakeupRequests.payload })
+      .from(agentWakeupRequests)
+      .where(
+        and(
+          eq(agentWakeupRequests.companyId, companyId),
+          eq(agentWakeupRequests.status, "deferred_issue_execution"),
+          sql`${agentWakeupRequests.payload} ->> 'issueId' = ${issueId}`,
+        ),
+      );
+
+    return deferredPayloads.some(({ payload }) => {
+      const parsedPayload = parseObject(payload);
+      const deferredContext = parseObject(parsedPayload[DEFERRED_WAKE_CONTEXT_KEY]);
+      return Boolean(deriveCommentId(deferredContext, parsedPayload));
+    });
+  }
+
   async function finalizeIssueCommentPolicy(
     run: typeof heartbeatRuns.$inferSelect,
     agent: typeof agents.$inferSelect,
@@ -3049,6 +3072,21 @@ export function heartbeatService(db: Db) {
           issueCommentRetryQueuedAt: null,
         });
       }
+      return { outcome: "not_applicable" as const, queuedRun: null };
+    }
+
+    if (await hasDeferredIssueCommentWake(run.companyId, issueId)) {
+      await patchRunIssueCommentStatus(run.id, {
+        issueCommentStatus: "not_applicable",
+        issueCommentSatisfiedByCommentId: null,
+        issueCommentRetryQueuedAt: null,
+      });
+      await appendRunEvent(run, await nextRunEventSeq(run.id), {
+        eventType: "lifecycle",
+        stream: "system",
+        level: "info",
+        message: "Run ended without an issue comment; a deferred comment wake already exists for this issue",
+      });
       return { outcome: "not_applicable" as const, queuedRun: null };
     }
 
@@ -3707,7 +3745,13 @@ export function heartbeatService(db: Db) {
         latestAt: sql<Date | null>`max(${activityLog.createdAt})`,
       })
       .from(activityLog)
-      .where(and(eq(activityLog.companyId, run.companyId), eq(activityLog.runId, run.id)));
+      .where(
+        and(
+          eq(activityLog.companyId, run.companyId),
+          eq(activityLog.runId, run.id),
+          notInArray(activityLog.action, LIVENESS_BOOKKEEPING_ACTIVITY_ACTIONS),
+        ),
+      );
 
     const [eventStats] = await db
       .select({
@@ -5262,6 +5306,8 @@ export function heartbeatService(db: Db) {
         executionWorkspaceId: environmentLease.executionWorkspaceId,
         issueId,
       },
+    }).catch((err) => {
+      logger.warn({ err, runId: run.id }, "failed to log environment lease acquisition");
     });
     const runtimeServiceIntents = (() => {
       const runtimeConfig = parseObject(resolvedConfig.workspaceRuntime);
