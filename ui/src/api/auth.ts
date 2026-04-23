@@ -113,6 +113,23 @@ export const authApi = {
     await authPost("/sign-up/email", input);
   },
 
+  // Start an OAuth sign-in: POST /api/auth/social -> { data: { url } } -> browser redirect.
+  // Server handles /api/auth/google/callback and drops the session cookie before redirecting
+  // back to `callbackURL`.
+  startSocialSignIn: async (
+    provider: "google" | "github",
+    callbackURL: string,
+  ): Promise<string> => {
+    const payload = (await authPost("/social", { provider, callbackURL })) as
+      | { data?: { url?: string } }
+      | null;
+    const url = payload?.data?.url;
+    if (typeof url !== "string" || url.length === 0) {
+      throw new AuthApiError("Social sign-in did not return a redirect URL.", 500, payload);
+    }
+    return url;
+  },
+
   getProfile: async (): Promise<CurrentUserProfile> => {
     const res = await fetch("/api/auth/profile", {
       credentials: "include",

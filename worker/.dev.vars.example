@@ -1,0 +1,19 @@
+# Copy to `.dev.vars` and fill in values. Wrangler auto-loads `.dev.vars`
+# when running `wrangler dev`. In prod use `wrangler secret put <NAME>`.
+
+# Required — HMAC key for session-token hashing and OAuth state signing.
+AUTH_SESSION_SECRET=""
+
+# Required — symmetric encryption of integration tokens (GitHub App etc.).
+SECRET_ENCRYPTION_KEY=""
+
+# Optional — outbound email via Resend (magic link, OTP).
+# RESEND_API_KEY=""
+
+# Optional — Google OAuth (redirect URI: http://localhost:5173/api/auth/google/callback).
+# GOOGLE_CLIENT_ID=""
+# GOOGLE_CLIENT_SECRET=""
+
+# Optional — GitHub OAuth.
+# GITHUB_CLIENT_ID=""
+# GITHUB_CLIENT_SECRET=""

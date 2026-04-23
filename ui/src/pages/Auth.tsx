@@ -91,8 +91,33 @@ export function AuthPage() {
               : "Create an account for this instance. Email confirmation is not required in v1."}
           </p>
 
+          <div className="mt-6 space-y-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              onClick={async () => {
+                try {
+                  setError(null);
+                  const url = await authApi.startSocialSignIn("google", nextPath);
+                  window.location.assign(url);
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : "Google sign-in failed");
+                }
+              }}
+            >
+              Continue with Google
+            </Button>
+          </div>
+
+          <div className="mt-4 flex items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+            <div className="h-px flex-1 bg-border" />
+            <span>or</span>
+            <div className="h-px flex-1 bg-border" />
+          </div>
+
           <form
-            className="mt-6 space-y-4"
+            className="mt-4 space-y-4"
             method="post"
             action={mode === "sign_up" ? "/api/auth/sign-up/email" : "/api/auth/sign-in/email"}
             onSubmit={(event) => {

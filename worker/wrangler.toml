@@ -12,6 +12,13 @@ run_worker_first = ["/api/*"]
 OPENROUTER_BASE_URL = "https://gateway.ai.cloudflare.com/v1/fd39fc50879a94e5f06cf5c9b48549d4/taskcenter/openrouter/v1"
 GATEWAY_BASE_URL = "https://gateway.ai.cloudflare.com/v1/fd39fc50879a94e5f06cf5c9b48549d4/taskcenter/compat"
 ADMIN_EMAILS = "hitesh.m@bootminds.com,sanjay@bootminds.com"
+# Auth email sender — must be a verified domain in Resend (taskcenter.co).
+# Outbound email (magic links, OTP) fails until RESEND_API_KEY is set via
+# `wrangler secret put RESEND_API_KEY` and this domain is DNS-verified.
+AUTH_EMAIL_FROM = "TaskCenter <noreply@taskcenter.co>"
+# Origin the worker uses when building OAuth redirect URIs + magic-link URLs.
+# Override in prod via `[env.production] PUBLIC_APP_URL = "https://app.taskcenter.co"`.
+PUBLIC_APP_URL = "http://localhost:5173"
 
 [[d1_databases]]
 binding = "DB"
