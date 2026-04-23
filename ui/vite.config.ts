@@ -27,8 +27,10 @@ export default defineConfig(({ mode }) => ({
     watch: createUiDevWatchOptions(process.cwd()),
     proxy: {
       "/api": {
-        target: "http://localhost:3100",
+        // TaskCenter Worker (wrangler dev) default port
+        target: "http://localhost:8787",
         ws: true,
+        changeOrigin: true,
       },
     },
   },

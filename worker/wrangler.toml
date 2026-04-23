@@ -1,0 +1,37 @@
+name = "taskcenter"
+main = "src/worker.ts"
+compatibility_date = "2025-02-01"
+account_id = "fd39fc50879a94e5f06cf5c9b48549d4"
+
+[assets]
+directory = "../ui/dist"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*"]
+
+[vars]
+OPENROUTER_BASE_URL = "https://gateway.ai.cloudflare.com/v1/fd39fc50879a94e5f06cf5c9b48549d4/taskcenter/openrouter/v1"
+GATEWAY_BASE_URL = "https://gateway.ai.cloudflare.com/v1/fd39fc50879a94e5f06cf5c9b48549d4/taskcenter/compat"
+ADMIN_EMAILS = "hitesh.m@bootminds.com,sanjay@bootminds.com"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "taskcenter"
+database_id = "5e5b11d8-9dbb-44ae-89f9-b860eafac35b"
+
+[durable_objects]
+bindings = [
+  { name = "ASSISTANT_THREAD_STREAM", class_name = "AssistantThreadStreamDurableObject" },
+  { name = "EXECUTION_SESSION_STREAM", class_name = "ExecutionSessionStreamDurableObject" },
+  { name = "COMPANY_RUNTIME_COORDINATOR", class_name = "CompanyRuntimeCoordinatorDurableObject" }
+]
+
+[[migrations]]
+tag = "v1-assistant-thread-stream"
+new_sqlite_classes = ["AssistantThreadStreamDurableObject"]
+
+[[migrations]]
+tag = "v2-control-plane-runtime"
+new_sqlite_classes = ["ExecutionSessionStreamDurableObject", "CompanyRuntimeCoordinatorDurableObject"]
+
+[triggers]
+crons = ["*/15 * * * *"]

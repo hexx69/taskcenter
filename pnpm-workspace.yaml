@@ -6,6 +6,11 @@ packages:
   # Keep this smoke fixture installable as a local plugin example without
   # forcing PRs to commit pnpm-lock.yaml for a new workspace importer.
   - "!packages/plugins/examples/plugin-orchestration-smoke-example"
-  - server
+  # TaskCenter: exclude the Node/Postgres server and its DB packages.
+  # Replaced by the Cloudflare Worker under ./worker (not in pnpm workspace).
+  - "!server"
+  - "!packages/db"
+  - "!packages/mcp-server"
+  # cli depends on @paperclipai/db; excluded along with the Node server.
+  - "!cli"
   - ui
-  - cli
