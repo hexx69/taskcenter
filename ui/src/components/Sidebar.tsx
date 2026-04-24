@@ -12,6 +12,7 @@ import {
   Repeat,
   GitBranch,
   Settings,
+  Sparkles,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { SidebarSection } from "./SidebarSection";
@@ -80,6 +81,7 @@ export function Sidebar() {
             <span className="truncate">New Issue</span>
           </button>
           <SidebarNavItem to="/dashboard" label="Dashboard" icon={LayoutDashboard} liveCount={liveRunCount} />
+          <SidebarNavItem to="/northstar" label="Northstar" icon={Sparkles} />
           <SidebarNavItem
             to="/inbox"
             label="Inbox"

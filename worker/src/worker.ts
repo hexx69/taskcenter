@@ -21,6 +21,7 @@ import { projectMemoryRoute } from './routes/project-memory'
 import { debugRoute } from './routes/debug'
 import { runtimeRoute } from './routes/runtime'
 import { assistantRoute, publicAssistantRoute } from './routes/assistant'
+import { northstarRoute } from './routes/northstar'
 import { executionSessionsPublicRoute, executionSessionsRoute } from './routes/execution-sessions'
 import { companiesRoute } from './routes/companies'
 import { inboxRoute } from './routes/inbox'
@@ -137,6 +138,7 @@ app.route('/api/skills', skillsRoute)
 app.route('/api/project-memory', projectMemoryRoute)
 app.route('/api/debug', debugRoute)
 app.route('/api/assistant', assistantRoute)
+app.route('/api/northstar', northstarRoute)
 app.route('/api/execution-sessions', executionSessionsRoute)
 app.route('/api/plugins', pluginsRoute)
 
