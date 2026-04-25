@@ -25,6 +25,7 @@ import {
 } from "../lib/issue-filters";
 import { formatAssigneeUserLabel } from "../lib/assignees";
 import { buildCompanyUserLabelMap, buildCompanyUserProfileMap } from "../lib/company-members";
+import { ensureArray } from "../lib/ensureArray";
 import {
   armIssueDetailInboxQuickArchive,
   createIssueDetailLocationState,
@@ -748,6 +749,7 @@ export function Inbox() {
     queryKey: queryKeys.approvals.list(selectedCompanyId!),
     queryFn: () => approvalsApi.list(selectedCompanyId!),
     enabled: !!selectedCompanyId,
+    select: (d) => ensureArray<NonNullable<typeof d> extends Array<infer U> ? U : never>(d),
   });
 
   const {
@@ -767,6 +769,7 @@ export function Inbox() {
     },
     enabled: !!selectedCompanyId,
     retry: false,
+    select: (d) => ensureArray<NonNullable<typeof d> extends Array<infer U> ? U : never>(d),
   });
 
   const { data: dashboard, isLoading: isDashboardLoading } = useQuery({
@@ -783,6 +786,7 @@ export function Inbox() {
         limit: INBOX_ISSUE_LIST_LIMIT,
       }),
     enabled: !!selectedCompanyId,
+    select: (d) => ensureArray<NonNullable<typeof d> extends Array<infer U> ? U : never>(d),
   });
   const {
     data: mineIssuesRaw = [],
@@ -798,6 +802,7 @@ export function Inbox() {
         limit: INBOX_ISSUE_LIST_LIMIT,
       }),
     enabled: !!selectedCompanyId,
+    select: (d) => ensureArray<NonNullable<typeof d> extends Array<infer U> ? U : never>(d),
   });
   const {
     data: touchedIssuesRaw = [],
@@ -812,12 +817,14 @@ export function Inbox() {
         limit: INBOX_ISSUE_LIST_LIMIT,
       }),
     enabled: !!selectedCompanyId,
+    select: (d) => ensureArray<NonNullable<typeof d> extends Array<infer U> ? U : never>(d),
   });
 
   const { data: heartbeatRuns, isLoading: isRunsLoading } = useQuery({
     queryKey: [...queryKeys.heartbeats(selectedCompanyId!), "limit", INBOX_HEARTBEAT_RUN_LIMIT],
     queryFn: () => heartbeatsApi.list(selectedCompanyId!, undefined, INBOX_HEARTBEAT_RUN_LIMIT),
     enabled: !!selectedCompanyId,
+    select: (d) => ensureArray<NonNullable<typeof d> extends Array<infer U> ? U : never>(d),
   });
 
   const { data: liveRuns } = useQuery({
@@ -825,6 +832,7 @@ export function Inbox() {
     queryFn: () => heartbeatsApi.liveRunsForCompany(selectedCompanyId!),
     enabled: !!selectedCompanyId,
     refetchInterval: 5000,
+    select: (d) => ensureArray<NonNullable<typeof d> extends Array<infer U> ? U : never>(d),
   });
   const { data: companyMembers } = useQuery({
     queryKey: queryKeys.access.companyUserDirectory(selectedCompanyId!),

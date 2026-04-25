@@ -29,10 +29,32 @@ import { Button } from "@/components/ui/button";
 import { Tabs } from "@/components/ui/tabs";
 import { PluginLauncherOutlet } from "@/plugins/launchers";
 import { PluginSlotMount, PluginSlotOutlet, usePluginSlots } from "@/plugins/slots";
+import { EpicsTab } from "./project-tabs/Epics";
+import { BoardTab } from "./project-tabs/Board";
+import { DiffsTab } from "./project-tabs/Diffs";
+import { LiveActivitiesTab } from "./project-tabs/LiveActivities";
+import { GanttTab } from "./project-tabs/Gantt";
+import { CalendarTab } from "./project-tabs/Calendar";
+import { CodeTab } from "./project-tabs/Code";
+import { MembersTab } from "./project-tabs/Members";
 
 /* ── Top-level tab types ── */
 
-type ProjectBaseTab = "overview" | "list" | "workspaces" | "configuration" | "budget";
+type ProjectBaseTab =
+  | "overview"
+  | "list"
+  | "workspaces"
+  | "configuration"
+  | "budget"
+  | "epics"
+  | "diffs"
+  | "board"
+  | "live-activities"
+  | "gantt"
+  | "calendar"
+  | "code"
+  | "members"
+  | "settings";
 type ProjectPluginTab = `plugin:${string}`;
 type ProjectTab = ProjectBaseTab | ProjectPluginTab;
 
@@ -50,6 +72,15 @@ function resolveProjectTab(pathname: string, projectId: string): ProjectTab | nu
   if (tab === "budget") return "budget";
   if (tab === "issues") return "list";
   if (tab === "workspaces") return "workspaces";
+  if (tab === "epics") return "epics";
+  if (tab === "diffs") return "diffs";
+  if (tab === "board") return "board";
+  if (tab === "live-activities") return "live-activities";
+  if (tab === "gantt") return "gantt";
+  if (tab === "calendar") return "calendar";
+  if (tab === "code") return "code";
+  if (tab === "members") return "members";
+  if (tab === "settings") return "settings";
   return null;
 }
 
@@ -625,10 +656,19 @@ export function ProjectDetail() {
       <Tabs value={activeTab ?? "list"} onValueChange={(value) => handleTabChange(value as ProjectTab)}>
         <PageTabBar
           items={[
-            { value: "list", label: "Issues" },
             { value: "overview", label: "Overview" },
-            ...(showWorkspacesTab ? [{ value: "workspaces", label: "Workspaces" }] : []),
+            { value: "epics", label: "Epics" },
+            { value: "diffs", label: "Diffs" },
+            { value: "board", label: "Board" },
+            { value: "live-activities", label: "Live Activities" },
+            { value: "gantt", label: "Gantt" },
+            { value: "calendar", label: "Calendar" },
+            { value: "code", label: "Code" },
+            { value: "members", label: "Members" },
+            { value: "settings", label: "Project Settings" },
+            { value: "list", label: "Issues" },
             { value: "configuration", label: "Configuration" },
+            ...(showWorkspacesTab ? [{ value: "workspaces", label: "Workspaces" }] : []),
             { value: "budget", label: "Budget" },
             ...pluginTabItems.map((item) => ({
               value: item.value,
@@ -696,6 +736,51 @@ export function ProjectDetail() {
           />
         </div>
       ) : null}
+
+      {activeTab === "epics" && project?.id && resolvedCompanyId ? (
+        <EpicsTab projectId={project.id} companyId={resolvedCompanyId} />
+      ) : null}
+
+      {activeTab === "board" && project?.id && resolvedCompanyId ? (
+        <BoardTab projectId={project.id} companyId={resolvedCompanyId} />
+      ) : null}
+
+      {activeTab === "diffs" && project?.id ? (
+        <DiffsTab projectId={project.id} />
+      ) : null}
+
+      {activeTab === "live-activities" && project?.id && resolvedCompanyId ? (
+        <LiveActivitiesTab projectId={project.id} companyId={resolvedCompanyId} />
+      ) : null}
+
+      {activeTab === "gantt" && project?.id && resolvedCompanyId ? (
+        <GanttTab projectId={project.id} companyId={resolvedCompanyId} />
+      ) : null}
+
+      {activeTab === "calendar" && project?.id && resolvedCompanyId ? (
+        <CalendarTab projectId={project.id} companyId={resolvedCompanyId} />
+      ) : null}
+
+      {activeTab === "code" && project?.id ? (
+        <CodeTab projectId={project.id} />
+      ) : null}
+
+      {activeTab === "members" && project?.id ? (
+        <MembersTab projectId={project.id} />
+      ) : null}
+
+      {activeTab === "settings" && (
+        <div className="max-w-4xl">
+          <ProjectProperties
+            project={project}
+            onUpdate={(data) => updateProject.mutate(data)}
+            onFieldUpdate={updateProjectField}
+            getFieldSaveState={(field) => fieldSaveStates[field] ?? "idle"}
+            onArchive={(archived) => archiveProject.mutate(archived)}
+            archivePending={archiveProject.isPending}
+          />
+        </div>
+      )}
 
       {activePluginTab && (
         <PluginSlotMount

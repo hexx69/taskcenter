@@ -6,6 +6,7 @@ import { ArrowLeft, Check, ExternalLink, Loader2, Sparkles } from "lucide-react"
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { ChoosePathButton } from "../components/PathInstructionsModal";
+import { AppLoader } from "../components/AppLoader";
 import { projectsApi } from "../api/projects";
 import {
   buildWorkspaceRuntimeControlSections,
@@ -329,7 +330,7 @@ export function ProjectWorkspaceDetail() {
     },
   });
 
-  if (projectQuery.isLoading) return <p className="text-sm text-muted-foreground">Loading workspace…</p>;
+  if (projectQuery.isLoading) return <AppLoader variant="page" label="Loading workspace…" />;
   if (projectQuery.error) {
     return (
       <p className="text-sm text-destructive">

@@ -47,6 +47,7 @@ import { AuthPage } from "./pages/Auth";
 import { BoardClaimPage } from "./pages/BoardClaim";
 import { CliAuthPage } from "./pages/CliAuth";
 import { InviteLandingPage } from "./pages/InviteLanding";
+import { AcceptInvitePage } from "./pages/AcceptInvite";
 import { JoinRequestQueue } from "./pages/JoinRequestQueue";
 import { NotFoundPage } from "./pages/NotFound";
 import { useCompany } from "./context/CompanyContext";
@@ -256,6 +257,7 @@ export function App() {
         <Route path="board-claim/:token" element={<BoardClaimPage />} />
         <Route path="cli-auth/:id" element={<CliAuthPage />} />
         <Route path="invite/:token" element={<InviteLandingPage />} />
+        <Route path="accept-invite/:token" element={<AcceptInvitePage />} />
 
         <Route element={<CloudAccessGate />}>
           <Route index element={<CompanyRootRedirect />} />

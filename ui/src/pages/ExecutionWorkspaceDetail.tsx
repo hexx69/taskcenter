@@ -5,6 +5,7 @@ import type { ExecutionWorkspace, Issue, Project, ProjectWorkspace } from "@pape
 import { ArrowLeft, Copy, ExternalLink, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardAction } from "@/components/ui/card";
+import { AppLoader } from "@/components/AppLoader";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Tabs } from "@/components/ui/tabs";
@@ -450,7 +451,7 @@ export function ExecutionWorkspaceDetail() {
     },
   });
 
-  if (workspaceQuery.isLoading) return <p className="text-sm text-muted-foreground">Loading workspace…</p>;
+  if (workspaceQuery.isLoading) return <AppLoader variant="page" label="Loading workspace…" />;
   if (workspaceQuery.error) {
     return (
       <p className="text-sm text-destructive">

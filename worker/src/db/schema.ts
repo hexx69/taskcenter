@@ -1224,4 +1224,26 @@ export const schemaStatements: string[] = [
     created_at INTEGER NOT NULL,
     FOREIGN KEY (tenant_id) REFERENCES tenants(id)
   );`
+  // ── Project members (humans who collaborate alongside agents) ──
+  // Mirrors the company_agents pattern: invites are gated through
+  // company_approvals (source_type='project_member_invite') and the row
+  // here lands once the approval is approved.
+  ,`CREATE TABLE IF NOT EXISTS project_members (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    user_id TEXT,
+    email TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'editor',
+    invited_by TEXT NOT NULL,
+    invite_token TEXT,
+    invite_status TEXT NOT NULL DEFAULT 'pending',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+    FOREIGN KEY (project_id) REFERENCES projects(id)
+  );`
+  ,`CREATE INDEX IF NOT EXISTS idx_project_members_project ON project_members(tenant_id, project_id);`
+  ,`CREATE INDEX IF NOT EXISTS idx_project_members_user ON project_members(tenant_id, user_id);`
+  ,`CREATE UNIQUE INDEX IF NOT EXISTS ux_project_members_token ON project_members(invite_token) WHERE invite_token IS NOT NULL;`
 ]

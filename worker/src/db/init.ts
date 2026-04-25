@@ -537,7 +537,10 @@ export async function initDb(c: Context<{ Bindings: Env }>) {
   ).run()
   console.log('[taskcenter] initDb bootstrap table ready')
 
-  const schemaStateKey = 'schema_init_v1'
+  // Bump this key whenever new CREATE TABLE statements are added to
+  // schemaStatements so live D1 instances pick them up. All statements use
+  // IF NOT EXISTS, so re-running is safe.
+  const schemaStateKey = 'schema_init_v2'
   const schemaReady = await getBootstrapState(c.env.DB, schemaStateKey)
   console.log('[taskcenter] initDb schema state', schemaReady ?? 'missing')
 

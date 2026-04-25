@@ -1294,6 +1294,15 @@ export async function approveCompanyApproval(
     } catch {
       // ignore publish failures
     }
+  } else if (row.source_type === 'project_member_invite') {
+    const payload = safeJsonParse<{ memberId?: string }>(row.payload_json, {})
+    if (payload.memberId) {
+      const { activateProjectMemberFromApproval } = await import('./project-members')
+      await activateProjectMemberFromApproval(env, {
+        tenantId: input.tenantId,
+        memberId: payload.memberId,
+      })
+    }
   }
 
   await env.DB.prepare(

@@ -14,6 +14,7 @@ import { NewGoalDialog } from "./NewGoalDialog";
 import { NewAgentDialog } from "./NewAgentDialog";
 import { KeyboardShortcutsCheatsheet } from "./KeyboardShortcutsCheatsheet";
 import { ToastViewport } from "./ToastViewport";
+import { NorthstarLauncher } from "./NorthstarLauncher";
 import { MobileBottomNav } from "./MobileBottomNav";
 import { WorktreeBanner } from "./WorktreeBanner";
 import { DevRestartBanner } from "./DevRestartBanner";
@@ -417,6 +418,7 @@ export function Layout() {
       <NewAgentDialog />
       <KeyboardShortcutsCheatsheet open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
       <ToastViewport />
+      <NorthstarLauncher />
       </div>
     </GeneralSettingsProvider>
   );

@@ -22,6 +22,7 @@ import { debugRoute } from './routes/debug'
 import { runtimeRoute } from './routes/runtime'
 import { assistantRoute, publicAssistantRoute } from './routes/assistant'
 import { northstarRoute } from './routes/northstar'
+import { projectMembersRoute, inviteAcceptRoute } from './routes/project-members'
 import { executionSessionsPublicRoute, executionSessionsRoute } from './routes/execution-sessions'
 import { companiesRoute } from './routes/companies'
 import { inboxRoute } from './routes/inbox'
@@ -125,6 +126,9 @@ app.get('/api/companies/:companyId/issues', async (c) => {
 app.route('/api/session', sessionRoute)
 app.route('/api/seed', seedRoute)
 app.route('/api/projects', projectsRoute)
+// Project members + invite acceptance — humans collaborating on a project.
+app.route('/api/projects', projectMembersRoute)
+app.route('/api/invites', inviteAcceptRoute)
 app.route('/api/companies', companiesRoute)
 app.route('/api/items', itemsRoute)
 app.route('/api/inbox', inboxRoute)
