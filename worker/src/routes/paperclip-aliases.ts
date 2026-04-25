@@ -129,8 +129,15 @@ paperclipAliasesRoute.get('/companies/:companyId/projects', async (c) => {
 
 // ---------- Feature stubs (not yet implemented in TaskCenter) -------------
 
-paperclipAliasesRoute.get('/companies/:companyId/heartbeat-runs', (c) => c.json({ runs: [] }))
-paperclipAliasesRoute.get('/companies/:companyId/join-requests', (c) => c.json({ requests: [] }))
+// UI expects bare arrays (it does `[...runs]` / `.filter(...)` directly).
+paperclipAliasesRoute.get('/companies/:companyId/heartbeat-runs', (c) => c.json([]))
+paperclipAliasesRoute.get('/companies/:companyId/join-requests', (c) => c.json([]))
+paperclipAliasesRoute.get('/companies/:companyId/live-runs', (c) => c.json([]))
+paperclipAliasesRoute.get('/companies/:companyId/labels', (c) => c.json([]))
+paperclipAliasesRoute.get('/companies/:companyId/user-directory', (c) =>
+  c.json({ users: [] }),
+)
+paperclipAliasesRoute.get('/companies/:companyId/execution-workspaces', (c) => c.json([]))
 
 // No-op WebSocket so Paperclip's LiveUpdatesProvider stops reconnecting.
 // Real streaming wires up to the existing Assistant/Company DOs in a later
